@@ -5,8 +5,40 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { networkInterfaces } from "os";
 import { existsSync } from "fs";
-import { randomBytes } from "crypto";
+import { randomInt } from "crypto";
 import qrcode from "qrcode-terminal";
+
+const WORDS = [
+  "alpha","amber","anvil","apple","arrow","atlas","azure","badge","baker","beach",
+  "berry","blade","blaze","bloom","board","bonus","brave","brick","brook","brush",
+  "cabin","cable","camel","candy","cedar","chain","chalk","charm","chase","chief",
+  "cider","clamp","cliff","climb","clock","cloud","cobra","coral","crane","creek",
+  "crest","cross","crown","crush","curve","delta","depth","diary","disco","dodge",
+  "dozen","draft","dream","drift","drive","eagle","ember","equal","extra","fable",
+  "fancy","feast","fiber","field","flame","flask","flint","flora","forge","frost",
+  "fruit","gamma","ghost","giant","glade","gleam","globe","grace","grain","grape",
+  "grasp","green","grove","guard","guide","haven","heart","hedge","honey","hover",
+  "ivory","jewel","jolly","karma","kiosk","knack","label","lance","latch","lemon",
+  "level","light","lilac","linen","logic","lotus","lunar","major","mango","maple",
+  "marsh","match","medal","melon","might","minor","mixer","mocha","morse","mount",
+  "noble","north","novel","ocean","olive","onion","orbit","omega","otter","oxide",
+  "panel","patch","peach","pearl","pedal","penny","pilot","pixel","plant","plaza",
+  "plume","plush","polar","pound","power","prism","proxy","pulse","quake","queen",
+  "quest","quota","radar","raven","relay","ridge","river","robin","rodeo","royal",
+  "ruler","salad","scale","scout","shade","shark","shell","shine","sigma","silk",
+  "slate","slope","smoke","solar","sonic","south","spark","spice","spray","squad",
+  "stack","stamp","steel","stern","stone","storm","sugar","surge","swift","tango",
+  "tempo","theta","thorn","tiger","toast","topaz","torch","tower","trace","trail",
+  "trend","trick","trout","tulip","ultra","umbra","unity","upper","urban","vault",
+  "verse","vigor","vinyl","viola","viper","vivid","wagon","watch","wheat","whirl",
+  "width","wired","yacht","zebra","zephyr",
+];
+
+function generateToken() {
+  const a = WORDS[randomInt(WORDS.length)];
+  const b = WORDS[randomInt(WORDS.length)];
+  return `${a}-${b}`;
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, "..");
@@ -84,7 +116,7 @@ const lanIp = getLanIp();
 const localUrl = `http://localhost:${port}`;
 const networkUrl = lanIp ? `http://${lanIp}:${port}` : null;
 
-const authToken = process.env.AUTH_TOKEN || randomBytes(24).toString("hex");
+const authToken = process.env.AUTH_TOKEN || generateToken();
 
 const authUrl = `${localUrl}?token=${authToken}`;
 
@@ -172,10 +204,16 @@ child.on("close", (code) => {
   process.exit(code ?? 0);
 });
 
-process.on("SIGINT", () => {
-  child.kill("SIGINT");
-});
+let exiting = false;
 
-process.on("SIGTERM", () => {
-  child.kill("SIGTERM");
-});
+function shutdown(signal) {
+  if (exiting) {
+    process.exit(1);
+  }
+  exiting = true;
+  child.kill(signal);
+  setTimeout(() => process.exit(0), 3000);
+}
+
+process.on("SIGINT", () => shutdown("SIGTERM"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));

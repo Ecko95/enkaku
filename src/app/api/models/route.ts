@@ -1,13 +1,10 @@
-import { execFileSync } from "child_process";
+import { execFile } from "child_process";
+import { promisify } from "util";
+import type { ModelInfo } from "@/lib/types";
+
+const execFileAsync = promisify(execFile);
 
 export const dynamic = "force-dynamic";
-
-export interface ModelInfo {
-  id: string;
-  label: string;
-  isDefault: boolean;
-  isCurrent: boolean;
-}
 
 function parseModels(output: string): ModelInfo[] {
   const models: ModelInfo[] = [];
@@ -16,7 +13,9 @@ function parseModels(output: string): ModelInfo[] {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("Available") || trimmed.startsWith("Tip:")) continue;
 
-    const match = trimmed.match(/^(\S+)\s+-\s+(.+?)(?:\s+\((default|current)(?:,\s*(default|current))?\))?$/);
+    const match = trimmed.match(
+      /^(\S+)\s+-\s+(.+?)(?:\s+\((default|current)(?:,\s*(default|current))?\))?$/,
+    );
     if (!match) continue;
 
     const [, id, label, tag1, tag2] = match;
@@ -42,12 +41,12 @@ export async function GET() {
   }
 
   try {
-    const output = execFileSync("agent", ["models"], {
+    const { stdout } = await execFileAsync("agent", ["models"], {
       encoding: "utf-8",
       timeout: 10000,
     });
 
-    const models = parseModels(output);
+    const models = parseModels(stdout);
 
     if (models.length > 0) {
       cachedModels = { models, fetchedAt: Date.now() };

@@ -3,13 +3,32 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useChat } from "@/hooks/use-chat";
 import { useHaptics } from "@/hooks/use-haptics";
+import { useNotifications } from "@/hooks/use-notifications";
+import { useSound } from "@/hooks/use-sound";
 import { apiFetch } from "@/lib/api-fetch";
+import type { StoredSession } from "@/lib/types";
 import { MessageList } from "./message-list";
 import { ChatInput } from "./chat-input";
-import { QrModal } from "./qr-modal";
-import { SessionSidebar } from "./session-sidebar";
 
-export function ChatContainer() {
+interface ChatContainerProps {
+  initialSessionId?: string;
+  onLabelChange?: (label: string) => void;
+  onStreamingChange?: (streaming: boolean) => void;
+  onSessionIdChange?: (sessionId: string | null) => void;
+  onSelectSession?: (id: string) => void;
+  onOpenSidebar?: () => void;
+  onOpenQr?: () => void;
+}
+
+export function ChatContainer({
+  initialSessionId,
+  onLabelChange,
+  onStreamingChange,
+  onSessionIdChange,
+  onSelectSession,
+  onOpenSidebar,
+  onOpenQr,
+}: ChatContainerProps) {
   const {
     messages,
     toolCalls,
@@ -23,29 +42,50 @@ export function ChatContainer() {
     error,
     sendMessage,
     loadSession,
-    setSessionId,
+    setSessionId: _setSessionId,
     setSelectedModel,
     setSelectedMode,
-    clearChat,
+    clearChat: _clearChat,
     stopStreaming,
     retryLastMessage,
+    queuedMessages,
+    forceSendQueued,
+    editQueued,
+    deleteQueued,
   } = useChat();
 
   const haptics = useHaptics();
-  const [qrOpen, setQrOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const notifications = useNotifications();
+  const sound = useSound();
   const [workspace, setWorkspace] = useState<string>("");
+  const [recentSessions, setRecentSessions] = useState<StoredSession[]>([]);
   const prevMsgCountRef = useRef(0);
+  const loadedInitialRef = useRef(false);
+  const prevStreamingRef = useRef(false);
+  const streamStartRef = useRef(0);
+
+  useEffect(() => {
+    if (initialSessionId && !loadedInitialRef.current) {
+      loadedInitialRef.current = true;
+      loadSession(initialSessionId);
+    }
+  }, [initialSessionId, loadSession]);
 
   const fetchWorkspace = useCallback(() => {
     apiFetch("/api/info")
       .then((r) => r.json())
       .then((data) => setWorkspace(data.workspace || ""))
-      .catch(() => {});
+      .catch((err) => console.warn("Failed to fetch workspace:", err));
   }, []);
 
   useEffect(() => {
     fetchWorkspace();
+    apiFetch("/api/sessions")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.sessions?.length > 0) setRecentSessions(data.sessions.slice(0, 3));
+      })
+      .catch((err) => console.warn("Failed to fetch sessions:", err));
   }, [fetchWorkspace]);
 
   useEffect(() => {
@@ -56,17 +96,61 @@ export function ChatContainer() {
     prevMsgCountRef.current = assistantMsgs;
   }, [messages, haptics]);
 
+  useEffect(() => {
+    if (isStreaming && !prevStreamingRef.current) {
+      streamStartRef.current = Date.now();
+      notifications.requestPermission();
+    }
+    if (prevStreamingRef.current && !isStreaming) {
+      const duration = Date.now() - streamStartRef.current;
+      const longEnough = duration > 3000;
+      if (error) {
+        notifications.notify("Agent error", { body: error });
+        if (longEnough || document.hidden) sound.playError();
+      } else {
+        const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+        notifications.notify("Agent finished", {
+          body: lastAssistant?.content.slice(0, 80) || "Response complete",
+        });
+        if (longEnough || document.hidden) sound.playComplete();
+      }
+    }
+    prevStreamingRef.current = isStreaming;
+    onStreamingChange?.(isStreaming);
+  }, [isStreaming, onStreamingChange, error, messages, notifications, sound]);
+
+  useEffect(() => {
+    onSessionIdChange?.(sessionId);
+  }, [sessionId, onSessionIdChange]);
+
+  useEffect(() => {
+    const firstUser = messages.find((m) => m.role === "user");
+    if (firstUser) {
+      onLabelChange?.(firstUser.content.slice(0, 50));
+    }
+  }, [messages, onLabelChange]);
+
   const dirName = workspace.split("/").filter(Boolean).pop() || "~";
 
   return (
-    <div className="h-dvh flex flex-col">
+    <div className="h-full flex flex-col">
       <header className="shrink-0 flex items-center justify-between h-11 px-3 border-b border-border">
         <div className="flex items-center gap-2">
           <button
-            onClick={() => { haptics.tap(); setSidebarOpen(true); }}
-            className="p-1 rounded-md hover:bg-bg-hover transition-colors text-text-muted hover:text-text-secondary"
+            onClick={() => {
+              haptics.tap();
+              onOpenSidebar?.();
+            }}
+            className="p-2 rounded-md hover:bg-bg-hover transition-colors text-text-muted hover:text-text-secondary"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <line x1="3" y1="6" x2="21" y2="6" />
               <line x1="3" y1="12" x2="15" y2="12" />
               <line x1="3" y1="18" x2="18" y2="18" />
@@ -79,12 +163,6 @@ export function ChatContainer() {
               <span className="text-[11px] text-text-muted">{model}</span>
             </>
           )}
-          {isWatching && (
-            <span className="flex items-center gap-1 text-[11px] text-success">
-              <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-              live
-            </span>
-          )}
         </div>
 
         <div className="flex items-center gap-1">
@@ -94,11 +172,21 @@ export function ChatContainer() {
             </span>
           )}
           <button
-            onClick={() => { haptics.tap(); setQrOpen(true); }}
-            className="p-1 rounded-md hover:bg-bg-hover transition-colors text-text-muted hover:text-text-secondary"
+            onClick={() => {
+              haptics.tap();
+              onOpenQr?.();
+            }}
+            className="p-2 rounded-md hover:bg-bg-hover transition-colors text-text-muted hover:text-text-secondary"
             title="Connect device"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <rect x="3" y="3" width="7" height="7" rx="1" />
               <rect x="14" y="3" width="7" height="7" rx="1" />
               <rect x="3" y="14" width="7" height="7" rx="1" />
@@ -122,27 +210,23 @@ export function ChatContainer() {
         isStreaming={isStreaming}
         isLoadingHistory={isLoadingHistory}
         isWatching={isWatching}
-        onSelectSession={loadSession}
+        recentSessions={recentSessions}
+        onSelectSession={onSelectSession ?? loadSession}
         onRetry={retryLastMessage}
+        queuedMessages={queuedMessages}
+        onForceSend={forceSendQueued}
+        onEditQueued={editQueued}
+        onDeleteQueued={deleteQueued}
       />
 
       <ChatInput
-        onSend={(msg) => sendMessage(msg)}
+        onSend={sendMessage}
         onStop={stopStreaming}
         isStreaming={isStreaming}
         selectedModel={selectedModel}
         selectedMode={selectedMode}
         onModelChange={setSelectedModel}
         onModeChange={setSelectedMode}
-      />
-
-      <QrModal open={qrOpen} onClose={() => setQrOpen(false)} />
-      <SessionSidebar
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        currentSessionId={sessionId}
-        onSelectSession={(id) => loadSession(id)}
-        onNewSession={clearChat}
       />
     </div>
   );

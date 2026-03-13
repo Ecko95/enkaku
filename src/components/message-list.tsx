@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { ChatMessage, ToolCallInfo, StoredSession } from "@/lib/types";
-import { apiFetch } from "@/lib/api-fetch";
+import type { ChatMessage, ToolCallInfo, StoredSession, QueuedMessage } from "@/lib/types";
 import { timeAgo } from "@/lib/format";
 import { MessageBubble } from "./message-bubble";
-import { ToolCallCard } from "./tool-call-card";
+import { ToolCallCard, ToolCallGroup, TodoLogCard, isMinorToolCall } from "./tool-call-card";
 
 interface MessageListProps {
   messages: ChatMessage[];
@@ -13,34 +12,30 @@ interface MessageListProps {
   isStreaming: boolean;
   isLoadingHistory?: boolean;
   isWatching?: boolean;
+  recentSessions?: StoredSession[];
   onSelectSession?: (id: string) => void;
   onRetry?: () => void;
+  queuedMessages?: QueuedMessage[];
+  onForceSend?: (id: string) => void;
+  onEditQueued?: (id: string, newContent: string) => void;
+  onDeleteQueued?: (id: string) => void;
 }
 
 interface TimelineItem {
-  kind: "message" | "toolcall";
+  kind: "message" | "toolcall" | "toolgroup";
   timestamp: number;
   message?: ChatMessage;
   toolCall?: ToolCallInfo;
+  toolCalls?: ToolCallInfo[];
 }
 
-function RecentSessions({ onSelect }: { onSelect: (id: string) => void }) {
-  const [sessions, setSessions] = useState<StoredSession[]>([]);
-  const fetched = useRef(false);
-
-  useEffect(() => {
-    if (fetched.current) return;
-    fetched.current = true;
-    apiFetch("/api/sessions")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.sessions?.length > 0) {
-          setSessions(data.sessions.slice(0, 3));
-        }
-      })
-      .catch(() => {});
-  }, []);
-
+function RecentSessions({
+  sessions,
+  onSelect,
+}: {
+  sessions: StoredSession[];
+  onSelect: (id: string) => void;
+}) {
   if (sessions.length === 0) return null;
 
   return (
@@ -58,12 +53,123 @@ function RecentSessions({ onSelect }: { onSelect: (id: string) => void }) {
             <p className="text-[12px] text-text-secondary group-hover:text-text truncate">
               {s.title}
             </p>
-            <p className="text-[10px] text-text-muted mt-0.5">
-              {timeAgo(s.updatedAt)}
-            </p>
+            <p className="text-[10px] text-text-muted mt-0.5">{timeAgo(s.updatedAt)}</p>
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function QueuedMessageCard({
+  msg,
+  onForceSend,
+  onEdit,
+  onDelete,
+}: {
+  msg: QueuedMessage;
+  onForceSend: () => void;
+  onEdit: (content: string) => void;
+  onDelete: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(msg.content);
+
+  const save = () => {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== msg.content) onEdit(trimmed);
+    setEditing(false);
+  };
+
+  const cancel = () => {
+    setDraft(msg.content);
+    setEditing(false);
+  };
+
+  return (
+    <div className="py-2.5 border border-dashed border-text-muted/25 rounded-lg px-3 bg-bg-surface/50">
+      <div className="flex items-start gap-2">
+        <span className="shrink-0 mt-0.5 text-text-muted/50">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
+          </svg>
+        </span>
+        <div className="flex-1 min-w-0">
+          {editing ? (
+            <div className="flex flex-col gap-1.5">
+              <textarea
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    save();
+                  }
+                  if (e.key === "Escape") cancel();
+                }}
+                rows={2}
+                className="w-full resize-none bg-bg px-2 py-1.5 text-[13px] text-text rounded border border-border focus:outline-none focus:border-text-muted/40"
+              />
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={save}
+                  className="px-2 py-0.5 text-[10px] font-medium rounded bg-bg-active text-text hover:bg-bg-hover transition-colors"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={cancel}
+                  className="px-2 py-0.5 text-[10px] font-medium rounded text-text-muted hover:text-text-secondary transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-[13px] text-text-secondary whitespace-pre-wrap break-words">
+              {msg.content}
+            </p>
+          )}
+        </div>
+      </div>
+      {!editing && (
+        <div className="flex items-center gap-1 mt-1.5 ml-5">
+          <span className="text-[10px] text-text-muted/50 mr-1">Queued</span>
+          <button
+            onClick={onForceSend}
+            className="px-2 py-0.5 text-[10px] font-medium rounded bg-bg-active text-text-secondary hover:text-text transition-colors"
+            title="Stop current and send this now"
+          >
+            Send now
+          </button>
+          <button
+            onClick={() => {
+              setDraft(msg.content);
+              setEditing(true);
+            }}
+            className="px-2 py-0.5 text-[10px] font-medium rounded text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors"
+          >
+            Edit
+          </button>
+          <button
+            onClick={onDelete}
+            className="px-2 py-0.5 text-[10px] font-medium rounded text-text-muted hover:text-error/80 hover:bg-error/5 transition-colors"
+          >
+            Delete
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -74,8 +180,13 @@ export function MessageList({
   isStreaming,
   isLoadingHistory,
   isWatching,
+  recentSessions = [],
   onSelectSession,
   onRetry,
+  queuedMessages = [],
+  onForceSend,
+  onEditQueued,
+  onDeleteQueued,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -95,26 +206,60 @@ export function MessageList({
     setAutoScroll(atBottom);
   }, []);
 
+  const lastMsg = messages[messages.length - 1];
+  const userJustSent = isStreaming && lastMsg?.role === "user";
+
   useEffect(() => {
-    if (!autoScroll) return;
+    if (!autoScroll && !userJustSent) return;
     isScrollingRef.current = true;
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-    const id = setTimeout(() => { isScrollingRef.current = false; }, 150);
+    const id = setTimeout(() => {
+      isScrollingRef.current = false;
+    }, 150);
     return () => clearTimeout(id);
-  }, [messages, toolCalls, autoScroll]);
+  }, [messages, toolCalls, autoScroll, userJustSent]);
 
-  const timeline: TimelineItem[] = [
-    ...messages.map(
-      (m): TimelineItem => ({ kind: "message", timestamp: m.timestamp, message: m })
-    ),
+  const sorted: TimelineItem[] = [
+    ...messages.map((m): TimelineItem => ({ kind: "message", timestamp: m.timestamp, message: m })),
     ...toolCalls.map(
       (tc): TimelineItem => ({
         kind: "toolcall",
         timestamp: tc.timestamp,
         toolCall: tc,
-      })
+      }),
     ),
   ].sort((a, b) => a.timestamp - b.timestamp);
+
+  const timeline: TimelineItem[] = [];
+  let minorBatch: ToolCallInfo[] = [];
+
+  const flushMinor = () => {
+    if (minorBatch.length === 0) return;
+    if (minorBatch.length === 1) {
+      timeline.push({
+        kind: "toolcall",
+        timestamp: minorBatch[0].timestamp,
+        toolCall: minorBatch[0],
+      });
+    } else {
+      timeline.push({
+        kind: "toolgroup",
+        timestamp: minorBatch[0].timestamp,
+        toolCalls: [...minorBatch],
+      });
+    }
+    minorBatch = [];
+  };
+
+  for (const item of sorted) {
+    if (item.kind === "toolcall" && item.toolCall && isMinorToolCall(item.toolCall)) {
+      minorBatch.push(item.toolCall);
+    } else {
+      flushMinor();
+      timeline.push(item);
+    }
+  }
+  flushMinor();
 
   if (isLoadingHistory) {
     return (
@@ -135,7 +280,9 @@ export function MessageList({
           <p className="text-text-muted text-[12px] leading-relaxed">
             Send a message to start an agent session.
           </p>
-          {onSelectSession && <RecentSessions onSelect={onSelectSession} />}
+          {onSelectSession && (
+            <RecentSessions sessions={recentSessions} onSelect={onSelectSession} />
+          )}
         </div>
       </div>
     );
@@ -146,58 +293,89 @@ export function MessageList({
   const lastIsUser = lastItem?.kind === "message" && lastItem.message?.role === "user";
   const showThinking = isStreaming && !hasRunningToolCalls && lastIsUser;
 
-  const hasMessages = messages.length > 0;
-  const showRetry = !isStreaming && hasMessages && onRetry;
+  const lastMessage = messages[messages.length - 1];
+  const showRetry = !isStreaming && lastMessage?.role === "user" && onRetry;
 
   return (
     <div className="flex-1 overflow-hidden relative">
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="h-full overflow-y-auto px-4 max-w-3xl mx-auto w-full"
+        className="h-full overflow-y-auto"
       >
-        <div className="divide-y divide-border/50">
-          {timeline.map((item) => {
-            if (item.kind === "message" && item.message) {
-              return <MessageBubble key={item.message.id} message={item.message} />;
-            }
-            if (item.kind === "toolcall" && item.toolCall) {
-              return <ToolCallCard key={item.toolCall.id} toolCall={item.toolCall} />;
-            }
-            return null;
-          })}
+        <div className="px-4 max-w-3xl mx-auto w-full">
+          <div className="divide-y divide-border/50">
+            {timeline.map((item, i) => {
+              if (item.kind === "message" && item.message) {
+                return <MessageBubble key={item.message.id} message={item.message} />;
+              }
+              if (item.kind === "toolcall" && item.toolCall) {
+                if (item.toolCall.type === "todo") {
+                  return <TodoLogCard key={item.toolCall.id} toolCall={item.toolCall} />;
+                }
+                return <ToolCallCard key={item.toolCall.id} toolCall={item.toolCall} />;
+              }
+              if (item.kind === "toolgroup" && item.toolCalls) {
+                return <ToolCallGroup key={`group-${i}`} toolCalls={item.toolCalls} />;
+              }
+              return null;
+            })}
+          </div>
+
+          {showThinking && (
+            <div className="py-3 flex items-center gap-2 text-text-muted text-[12px]">
+              <span className="w-3 h-3 rounded-full border-2 border-text-muted border-t-transparent animate-spin" />
+              Thinking...
+            </div>
+          )}
+
+          {isWatching && !isStreaming && timeline.length > 0 && (
+            <div className="py-3 flex items-center gap-2 text-text-muted text-[11px]">
+              <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+              Watching for updates...
+            </div>
+          )}
+
+          {showRetry && (
+            <div className="py-1">
+              <button
+                onClick={onRetry}
+                className="flex items-center gap-1 text-[10px] text-text-muted/60 hover:text-text-muted transition-colors"
+              >
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="1 4 1 10 7 10" />
+                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                </svg>
+                Retry last message
+              </button>
+            </div>
+          )}
+
+          {queuedMessages.length > 0 && (
+            <div className="space-y-2 py-2">
+              {queuedMessages.map((msg) => (
+                <QueuedMessageCard
+                  key={msg.id}
+                  msg={msg}
+                  onForceSend={() => onForceSend?.(msg.id)}
+                  onEdit={(content) => onEditQueued?.(msg.id, content)}
+                  onDelete={() => onDeleteQueued?.(msg.id)}
+                />
+              ))}
+            </div>
+          )}
+
+          <div ref={endRef} className="h-4" />
         </div>
-
-        {showThinking && (
-          <div className="py-3 flex items-center gap-2 text-text-muted text-[12px]">
-            <span className="w-3 h-3 rounded-full border-2 border-text-muted border-t-transparent animate-spin" />
-            Thinking...
-          </div>
-        )}
-
-        {isWatching && !isStreaming && timeline.length > 0 && (
-          <div className="py-3 flex items-center gap-2 text-text-muted text-[11px]">
-            <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-            Watching for updates...
-          </div>
-        )}
-
-        {showRetry && (
-          <div className="py-2 flex justify-center">
-            <button
-              onClick={onRetry}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-md text-[11px] text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="1 4 1 10 7 10" />
-                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-              </svg>
-              Retry
-            </button>
-          </div>
-        )}
-
-        <div ref={endRef} className="h-4" />
       </div>
 
       {!autoScroll && timeline.length > 0 && (
@@ -205,7 +383,14 @@ export function MessageList({
           onClick={scrollToBottom}
           className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-bg-elevated border border-border text-text-muted hover:text-text-secondary text-[11px] shadow-lg transition-colors"
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
             <line x1="12" y1="5" x2="12" y2="19" />
             <polyline points="19 12 12 19 5 12" />
           </svg>

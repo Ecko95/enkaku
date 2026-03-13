@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
 const COOKIE_NAME = "cr_session";
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
@@ -45,73 +46,6 @@ function unauthorizedHtml(wrongToken = false): string {
       line-height: 1.5;
       margin-bottom: 24px;
     }
-    .steps {
-      text-align: left;
-      background: #111;
-      border: 1px solid #1e1e1e;
-      border-radius: 12px;
-      padding: 16px 20px;
-      margin-bottom: 20px;
-    }
-    .step {
-      display: flex;
-      gap: 12px;
-      align-items: flex-start;
-      padding: 8px 0;
-    }
-    .step + .step {
-      border-top: 1px solid #1e1e1e;
-    }
-    .num {
-      font-size: 11px;
-      font-weight: 600;
-      color: #555;
-      background: #1a1a1a;
-      width: 20px;
-      height: 20px;
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      margin-top: 1px;
-    }
-    .step p {
-      font-size: 13px;
-      color: #999;
-      line-height: 1.5;
-    }
-    code {
-      font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
-      font-size: 12px;
-      background: #1a1a1a;
-      color: #e8e8e8;
-      padding: 2px 6px;
-      border-radius: 4px;
-    }
-    .hint {
-      font-size: 11px;
-      color: #555;
-      line-height: 1.5;
-    }
-    .divider {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin: 20px 0;
-    }
-    .divider::before, .divider::after {
-      content: "";
-      flex: 1;
-      height: 1px;
-      background: #1e1e1e;
-    }
-    .divider span {
-      font-size: 11px;
-      color: #555;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
     .input-group {
       display: flex;
       gap: 8px;
@@ -153,6 +87,12 @@ function unauthorizedHtml(wrongToken = false): string {
       border-color: #ef4444;
       animation: shake 0.3s ease;
     }
+    .hint {
+      font-size: 11px;
+      color: #555;
+      line-height: 1.5;
+      margin-top: 16px;
+    }
     @keyframes shake {
       0%, 100% { transform: translateX(0); }
       25% { transform: translateX(-4px); }
@@ -167,24 +107,14 @@ function unauthorizedHtml(wrongToken = false): string {
       <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
     </svg>
     <h1>Authentication required</h1>
-    <p class="sub">Scan the QR code from your terminal, or paste the token below.</p>
+    <p class="sub">Paste the token from your terminal to connect.</p>
+
     <form id="auth" class="input-group" onsubmit="return handleSubmit(event)">
       <input id="token" type="text" placeholder="Paste token here" autocomplete="off" spellcheck="false" autofocus class="${wrongToken ? "shake" : ""}" />
       <button type="submit">Connect</button>
     </form>
     ${wrongToken ? '<p class="error-msg">Wrong token. Check your terminal for the correct one.</p>' : ""}
-    <div class="divider"><span>or</span></div>
-    <div class="steps">
-      <div class="step">
-        <span class="num">1</span>
-        <p>Scan the <strong style="color:#e8e8e8">QR code</strong> shown in the terminal where you ran <code>clr</code></p>
-      </div>
-      <div class="step">
-        <span class="num">2</span>
-        <p>Find the token in your terminal output after starting cursor-local-remote</p>
-      </div>
-    </div>
-    <p class="hint">The token is printed in the terminal when cursor-local-remote starts.</p>
+    <p class="hint">Run <code>clr</code> in your terminal to see the QR code and token.</p>
   </div>
   <script>
     function handleSubmit(e) {
@@ -200,7 +130,7 @@ function unauthorizedHtml(wrongToken = false): string {
 }
 
 export function middleware(req: NextRequest) {
-  const token = process.env.AUTH_TOKEN;
+  const token = process.env.AUTH_TOKEN?.toLowerCase();
   if (!token) {
     console.warn("[clr] AUTH_TOKEN is not set — all requests are unauthenticated");
     return NextResponse.next();
@@ -210,7 +140,7 @@ export function middleware(req: NextRequest) {
   const queryToken = url.searchParams.get("token");
 
   if (queryToken !== null) {
-    if (queryToken === token) {
+    if (queryToken.toLowerCase() === token) {
       url.searchParams.delete("token");
       const res = NextResponse.redirect(url);
       res.cookies.set(COOKIE_NAME, token, {
@@ -229,10 +159,10 @@ export function middleware(req: NextRequest) {
   }
 
   const cookie = req.cookies.get(COOKIE_NAME)?.value;
-  if (cookie === token) return NextResponse.next();
+  if (cookie?.toLowerCase() === token) return NextResponse.next();
 
   const auth = req.headers.get("authorization");
-  if (auth === `Bearer ${token}`) return NextResponse.next();
+  if (auth?.toLowerCase() === `bearer ${token}`) return NextResponse.next();
 
   if (req.nextUrl.pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

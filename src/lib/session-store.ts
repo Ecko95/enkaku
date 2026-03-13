@@ -34,7 +34,7 @@ function writeStore(data: StoreData) {
 export function upsertSession(
   sessionId: string,
   workspace: string,
-  firstMessage: string
+  firstMessage: string,
 ): StoredSession {
   const store = readStore();
   const existing = store.sessions.find((s) => s.id === sessionId);

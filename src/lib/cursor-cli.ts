@@ -10,13 +10,7 @@ export interface AgentOptions {
 }
 
 export function spawnAgent(options: AgentOptions): ChildProcess {
-  const args = [
-    "-p",
-    options.prompt,
-    "--output-format",
-    "stream-json",
-    "--stream-partial-output",
-  ];
+  const args = ["-p", options.prompt, "--output-format", "stream-json", "--stream-partial-output"];
 
   if (process.env.CURSOR_TRUST === "1") {
     args.push("--trust");
@@ -46,6 +40,18 @@ export function createStreamFromProcess(child: ChildProcess): ReadableStream<Uin
   return new ReadableStream({
     start(controller) {
       let buffer = "";
+      let closed = false;
+
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        controller.close();
+      };
+
+      const enqueue = (data: Uint8Array) => {
+        if (closed) return;
+        controller.enqueue(data);
+      };
 
       child.stdout?.on("data", (chunk: Buffer) => {
         buffer += chunk.toString();
@@ -54,24 +60,24 @@ export function createStreamFromProcess(child: ChildProcess): ReadableStream<Uin
 
         for (const line of lines) {
           if (line.trim()) {
-            controller.enqueue(encoder.encode(line + "\n"));
+            enqueue(encoder.encode(line + "\n"));
           }
         }
       });
 
-      child.stderr?.on("data", () => {
+      child.stderr?.on("data", (chunk: Buffer) => {
         const errorEvent = JSON.stringify({
           type: "error",
-          message: "Agent process error",
+          message: chunk.toString().trim() || "Agent process error",
         });
-        controller.enqueue(encoder.encode(errorEvent + "\n"));
+        enqueue(encoder.encode(errorEvent + "\n"));
       });
 
       child.on("close", () => {
         if (buffer.trim()) {
-          controller.enqueue(encoder.encode(buffer + "\n"));
+          enqueue(encoder.encode(buffer + "\n"));
         }
-        controller.close();
+        close();
       });
 
       child.on("error", (err) => {
@@ -79,13 +85,14 @@ export function createStreamFromProcess(child: ChildProcess): ReadableStream<Uin
           type: "error",
           message: err.message,
         });
-        controller.enqueue(encoder.encode(errorEvent + "\n"));
-        controller.close();
+        enqueue(encoder.encode(errorEvent + "\n"));
+        close();
       });
     },
 
     cancel() {
-      child.kill("SIGTERM");
+      // intentionally NOT killing the child process here --
+      // it should keep running even if the browser disconnects
     },
   });
 }

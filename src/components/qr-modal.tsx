@@ -18,7 +18,7 @@ export function QrModal({ open, onClose }: QrModalProps) {
     apiFetch("/api/info")
       .then((r) => r.json())
       .then(setInfo)
-      .catch(() => {});
+      .catch((err) => console.warn("Failed to fetch network info:", err));
   }, [open]);
 
   if (!open) return null;
@@ -33,9 +33,7 @@ export function QrModal({ open, onClose }: QrModalProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <p className="text-[13px] font-medium text-text mb-1">Connect device</p>
-        <p className="text-[12px] text-text-muted mb-5">
-          Scan from any device on your network
-        </p>
+        <p className="text-[12px] text-text-muted mb-5">Scan from any device on your network</p>
 
         {info ? (
           <>

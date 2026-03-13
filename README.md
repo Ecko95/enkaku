@@ -1,89 +1,112 @@
 # cursor local remote
 
-Control Cursor from your phone. Or tablet. Or any browser on your network.
+Control Cursor from your phone. Or tablet. Or any browser on your network. 
 
 A local web UI that talks to Cursor's CLI agent on your machine. No cloud, no accounts, no tunneling. Just your local network.
 
+## Good to know
+
+This is essentially an easy way to use the Cursor CLI from your phone or any other device on your network.
+
+You can **start new sessions** from the remote UI and they work fully: the agent runs, edits files, executes commands, everything. However, sessions started remotely won't appear in Cursor's desktop sidebar. This is a Cursor limitation, it stores conversation state in an internal in-memory store that can't be written from outside the process.
+
+The remote UI can see **all** sessions, both ones started in the IDE and ones started remotely. You can monitor active desktop sessions in real time, browse and resume past sessions, or start fresh ones. Messages sent from the remote won't show up in the IDE's chat view, but the work the agent does (file edits, commands) happens on your machine either way.
+
 ## Install
-
-Run it instantly with npx (no install needed):
-
-```bash
-npx cursor-local-remote
-```
-
-A QR code pops up in your terminal — scan it from your phone, and you're connected to Cursor.
-
-Or install globally for a shorter command:
 
 ```bash
 npm install -g cursor-local-remote
+```
+
+Then start it:
+
+```bash
 clr
 ```
 
-To uninstall:
+A QR code pops up in your terminal — scan it from your phone and you're connected.
 
-```bash
-npm uninstall -g cursor-local-remote
-```
-
-## What it does
+## Features
 
 - **Send prompts** to Cursor's agent from any device on your network
 - **Watch responses stream in** — text, tool calls, file edits, shell commands
-- **Pick a model** — fetches your actual available models from Cursor
+- **Pick a model** — fetches your available models from Cursor
 - **Switch modes** — Agent, Ask, or Plan
-- **Browse sessions** — see all your past Cursor sessions for the workspace, tap to view
-- **Live tail** — open an active desktop Cursor session and watch it update in real time
-- **Resume sessions** — continue any past session right from the web UI
+- **Browse sessions** — see all past Cursor sessions for the workspace
+- **Live tail** — watch an active desktop session update in real time
+- **Resume sessions** — continue any past session from the web UI
 - **Stop / retry / copy** — cancel a running response, retry, or copy any message
 
 ## Usage
 
-`clr` is the short alias for `cursor-local-remote` when installed globally.
+`clr` is the short alias for `cursor-local-remote`.
+
+```
+clr [workspace] [options]
+```
+
+| Option | Description |
+| --- | --- |
+| `workspace` | Path to your project folder (defaults to cwd) |
+| `-p, --port` | Port to run on (default: `3100`) |
+| `--no-open` | Don't auto-open the browser |
+| `--no-qr` | Don't show QR code in terminal |
 
 ```bash
-# start in current folder
-clr
-
-# start for a specific project
-clr ~/projects/my-app
-
-# use a different port
-clr --port 8080
-
-# skip auto-opening browser
-clr --no-open
-
-# skip QR code in terminal
-clr --no-qr
+clr                          # current folder
+clr ~/projects/my-app        # specific project
+clr --port 8080              # different port
+clr --no-open --no-qr        # headless-friendly
 ```
 
 ## How it works
 
 ```
-Your phone / tablet / laptop          Your machine
-        (browser)          ── LAN ──>  Next.js app  ──>  cursor CLI (agent)
-                           <─ stream ─  :3100
+Phone / tablet / browser  ── LAN ──>  Next.js (0.0.0.0:3100)  ──>  cursor CLI (agent)
+                          <─ stream ─
 ```
 
-The Next.js app runs on your machine at `0.0.0.0:3100`. It spawns `agent` processes using Cursor's CLI in headless mode (`agent -p --output-format stream-json`), streams the NDJSON output to the browser, and reads Cursor's own session transcripts from `~/.cursor/projects/` so you can see all your sessions — not just ones started from this tool.
+The CLI starts a pre-built Next.js server on your machine. When you send a prompt, the server spawns a headless `agent` process (`agent -p <prompt> --output-format stream-json`) and streams the NDJSON output back to the browser over HTTP. Session history comes from reading Cursor's own transcript files in `~/.cursor/projects/`, so you see all sessions, not just ones started from this tool.
 
-## Limitations
+### Authentication
 
-Sessions started from the remote UI work fully but won't appear in Cursor's desktop sidebar. Cursor stores conversation state in an internal in-memory store that can't be written from outside the process.
+Every launch generates a random token printed in the terminal. Access is granted by:
 
-The remote UI can see **all** sessions — both ones started in the IDE and ones started remotely. The best workflow is to **start a session in Cursor on your desktop**, then monitor or continue it from your phone via the remote UI. But any messages sent on the remote won't then be seen in the editor.
+1. Scanning the QR code (encodes the network URL with the token)
+2. Visiting the URL with `?token=<token>` (sets an `httpOnly` cookie for 7 days)
+3. Passing `Authorization: Bearer <token>` for API calls
+
+You can also set a fixed token via the `AUTH_TOKEN` env var.
+
+### API
+
+All endpoints require a valid token (cookie or `Bearer` header).
+
+| Endpoint | Method | Description |
+| --- | --- | --- |
+| `/api/chat` | `POST` | Send a prompt. Returns an NDJSON stream of agent events (`system`, `user`, `assistant`, `tool_call`, `result`). Body: `{ prompt, sessionId?, model?, mode? }` |
+| `/api/models` | `GET` | List available models from `agent models` (cached 5 min) |
+| `/api/sessions/history` | `GET` | Session list or full transcript. `?id=<sessionId>` for messages + tool calls |
+| `/api/sessions/watch` | `GET` | SSE stream for live session updates. `?id=<sessionId>` — pushes `update` events on file change |
+
+### Environment variables
+
+| Variable | Description |
+| --- | --- |
+| `AUTH_TOKEN` | Fixed auth token (otherwise randomly generated each launch) |
+| `CURSOR_WORKSPACE` | Workspace path (set automatically by the CLI) |
+| `CURSOR_TRUST` | Set to `1` to pass `--trust` to the agent (auto-approve all tool calls) |
+| `PORT` | Server port (default: `3100`) |
 
 ## Requirements
 
-- [Node.js](https://nodejs.org/) 18+
+- [Node.js](https://nodejs.org/) 20+
 - [Cursor](https://cursor.com) with the CLI installed (`agent --version` should work)
 - A Cursor subscription (Pro, Team, etc.)
 
 ## Development
 
-Clone the repo and run in dev mode:
+Contributions are welcome. Mainly created this so that I can use cursor when I don't feel like being at my desk. Whole project vibecoded with cursor, obviously.
 
 ```bash
 git clone https://github.com/jon-makinen/cursor-local-remote.git

@@ -21,14 +21,14 @@ export async function GET(req: Request) {
     return Response.json({ sessionId, modifiedAt });
   }
 
-  const { messages, modifiedAt } = readSessionMessages(workspace, sessionId);
-
   if (sinceParam) {
     const since = parseInt(sinceParam, 10);
+    const modifiedAt = getSessionModifiedAt(workspace, sessionId);
     if (!isNaN(since) && modifiedAt <= since) {
-      return Response.json({ sessionId, modifiedAt, messages: null });
+      return Response.json({ sessionId, modifiedAt, messages: null, toolCalls: null });
     }
   }
 
-  return Response.json({ messages, sessionId, modifiedAt });
+  const { messages, toolCalls, modifiedAt } = readSessionMessages(workspace, sessionId);
+  return Response.json({ messages, toolCalls, sessionId, modifiedAt });
 }

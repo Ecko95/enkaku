@@ -1,66 +1,68 @@
 import { spawnAgent, createStreamFromProcess } from "@/lib/cursor-cli";
 import { getWorkspace } from "@/lib/workspace";
 import { upsertSession } from "@/lib/session-store";
+import { registerProcess, promoteToSessionId } from "@/lib/process-registry";
 import { SESSION_ID_RE } from "@/lib/validation";
 import type { ChatRequest, AgentMode } from "@/lib/types";
 
 const VALID_MODES: AgentMode[] = ["agent", "ask", "plan"];
-const MAX_CONCURRENT = 3;
 
 export const dynamic = "force-dynamic";
-
-let activeCount = 0;
 
 function createTappedStream(
   source: ReadableStream<Uint8Array>,
   workspace: string,
   prompt: string,
+  requestId: string,
 ): ReadableStream<Uint8Array> {
   const reader = source.getReader();
   let captured = false;
+  let closed = false;
 
   return new ReadableStream({
     async pull(controller) {
-      const { done, value } = await reader.read();
-      if (done) {
-        activeCount = Math.max(0, activeCount - 1);
-        controller.close();
-        return;
-      }
+      try {
+        const { done, value } = await reader.read();
+        if (closed) return;
+        if (done) {
+          closed = true;
+          controller.close();
+          return;
+        }
 
-      if (!captured && value) {
-        const text = new TextDecoder().decode(value);
-        for (const line of text.split("\n")) {
-          if (!line.trim()) continue;
-          try {
-            const event = JSON.parse(line);
-            if (event.type === "system" && event.subtype === "init" && event.session_id) {
-              upsertSession(event.session_id, workspace, prompt);
-              captured = true;
+        if (!captured && value) {
+          const text = new TextDecoder().decode(value);
+          for (const line of text.split("\n")) {
+            if (!line.trim()) continue;
+            try {
+              const event = JSON.parse(line);
+              if (event.type === "system" && event.subtype === "init" && event.session_id) {
+                upsertSession(event.session_id, workspace, prompt);
+                promoteToSessionId(requestId, event.session_id);
+                captured = true;
+              }
+            } catch {
+              // non-json line, skip
             }
-          } catch {
-            // non-json line, skip
           }
         }
-      }
 
-      controller.enqueue(value);
+        controller.enqueue(value);
+      } catch {
+        if (!closed) {
+          closed = true;
+        }
+      }
     },
     cancel() {
-      activeCount = Math.max(0, activeCount - 1);
-      reader.cancel();
+      closed = true;
+      // do NOT cancel the underlying reader or kill the process --
+      // the agent keeps running in the background
     },
   });
 }
 
 export async function POST(req: Request) {
-  if (activeCount >= MAX_CONCURRENT) {
-    return Response.json(
-      { error: `Too many concurrent sessions (max ${MAX_CONCURRENT})` },
-      { status: 429 }
-    );
-  }
-
   let body: ChatRequest;
   try {
     body = await req.json();
@@ -80,14 +82,19 @@ export async function POST(req: Request) {
     return Response.json({ error: "invalid mode" }, { status: 400 });
   }
 
-  if (body.model !== undefined && (typeof body.model !== "string" || body.model.length > 128 || /[^a-zA-Z0-9._/-]/.test(body.model))) {
+  if (
+    body.model !== undefined &&
+    (typeof body.model !== "string" ||
+      body.model.length > 128 ||
+      /[^a-zA-Z0-9._/-]/.test(body.model))
+  ) {
     return Response.json({ error: "invalid model" }, { status: 400 });
   }
 
   const workspace = getWorkspace();
 
   try {
-    activeCount++;
+    const requestId = crypto.randomUUID();
 
     const child = spawnAgent({
       prompt: body.prompt,
@@ -97,8 +104,14 @@ export async function POST(req: Request) {
       mode: body.mode,
     });
 
+    registerProcess(requestId, child, workspace);
+
+    if (body.sessionId) {
+      promoteToSessionId(requestId, body.sessionId);
+    }
+
     const rawStream = createStreamFromProcess(child);
-    const stream = createTappedStream(rawStream, workspace, body.prompt);
+    const stream = createTappedStream(rawStream, workspace, body.prompt, requestId);
 
     return new Response(stream, {
       headers: {
@@ -109,7 +122,6 @@ export async function POST(req: Request) {
       },
     });
   } catch (err) {
-    activeCount = Math.max(0, activeCount - 1);
     const message = err instanceof Error ? err.message : "Failed to start agent";
     return Response.json({ error: message }, { status: 500 });
   }

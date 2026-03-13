@@ -1,5 +1,10 @@
-import { ChatContainer } from "@/components/chat-container";
+import { ChatWorkspace } from "@/components/chat-workspace";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 export default function Home() {
-  return <ChatContainer />;
+  return (
+    <ErrorBoundary>
+      <ChatWorkspace />
+    </ErrorBoundary>
+  );
 }

@@ -1,5 +1,3 @@
-export type StreamEventType = "system" | "user" | "assistant" | "tool_call" | "result";
-
 export interface SystemInitEvent {
   type: "system";
   subtype: "init";
@@ -28,49 +26,11 @@ export interface AssistantMessageEvent {
   session_id: string;
 }
 
-export interface ReadToolCall {
-  readToolCall: {
-    args: { path: string };
-    result?: {
-      success?: {
-        content: string;
-        isEmpty: boolean;
-        exceededLimit: boolean;
-        totalLines: number;
-        totalChars: number;
-      };
-    };
-  };
-}
-
-export interface WriteToolCall {
-  writeToolCall: {
-    args: { path: string; fileText?: string; toolCallId?: string };
-    result?: {
-      success?: {
-        path: string;
-        linesCreated: number;
-        fileSize: number;
-      };
-    };
-  };
-}
-
-export interface GenericToolCall {
-  function: {
-    name: string;
-    arguments: string;
-  };
-  result?: unknown;
-}
-
-export type ToolCallPayload = ReadToolCall | WriteToolCall | GenericToolCall;
-
 export interface ToolCallStartedEvent {
   type: "tool_call";
   subtype: "started";
   call_id: string;
-  tool_call: ToolCallPayload;
+  tool_call: Record<string, unknown>;
   session_id: string;
 }
 
@@ -78,7 +38,7 @@ export interface ToolCallCompletedEvent {
   type: "tool_call";
   subtype: "completed";
   call_id: string;
-  tool_call: ToolCallPayload;
+  tool_call: Record<string, unknown>;
   session_id: string;
 }
 
@@ -109,16 +69,25 @@ export interface ChatMessage {
   timestamp: number;
 }
 
+export interface TodoItem {
+  id: string;
+  content: string;
+  status: string;
+}
+
 export interface ToolCallInfo {
   id: string;
   callId: string;
-  type: "read" | "write" | "edit" | "shell" | "search" | "other";
+  type: "read" | "write" | "edit" | "shell" | "search" | "todo" | "other";
   name: string;
   path?: string;
   command?: string;
   args?: string;
   status: "running" | "completed" | "error";
   result?: string;
+  diff?: string;
+  diffStartLine?: number;
+  todos?: TodoItem[];
   timestamp: number;
 }
 
@@ -146,4 +115,19 @@ export interface NetworkInfo {
   url: string;
   authUrl: string;
   workspace: string;
+}
+
+export interface QueuedMessage {
+  id: string;
+  content: string;
+  timestamp: number;
+  model?: string;
+  mode?: AgentMode;
+}
+
+export interface ModelInfo {
+  id: string;
+  label: string;
+  isDefault: boolean;
+  isCurrent: boolean;
 }
