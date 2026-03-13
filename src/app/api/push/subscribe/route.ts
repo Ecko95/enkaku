@@ -12,7 +12,7 @@ export async function POST(req: Request) {
     return badRequest("invalid push subscription: missing endpoint");
   }
 
-  savePushSubscription(body);
+  await savePushSubscription(body);
   return Response.json({ ok: true });
 }
 
@@ -24,6 +24,6 @@ export async function DELETE(req: Request) {
     return badRequest("endpoint is required");
   }
 
-  removePushSubscription(body.endpoint);
+  await removePushSubscription(body.endpoint);
   return Response.json({ ok: true });
 }

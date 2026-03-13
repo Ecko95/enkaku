@@ -39,7 +39,7 @@ function waitForSessionId(
             found = true;
             resolvedSessionId = event.session_id;
             clearTimeout(timer);
-            upsertSession(event.session_id, workspace, prompt);
+            void upsertSession(event.session_id, workspace, prompt);
             promoteToSessionId(requestId, event.session_id);
             resolve(event.session_id);
           }

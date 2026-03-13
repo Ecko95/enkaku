@@ -11,20 +11,26 @@ export async function register() {
       let title = "Agent finished";
       let body = "Response complete";
 
-      try {
-        const conn = getDb();
-        const row = conn
-          .prepare("SELECT title, preview FROM sessions WHERE id = ?")
-          .get(sessionId) as { title: string; preview: string } | undefined;
-        if (row) {
-          title = "Agent finished";
-          body = row.preview || row.title;
+      void (async () => {
+        try {
+          const conn = await getDb();
+          const stmt = conn.prepare("SELECT title, preview FROM sessions WHERE id = ?");
+          try {
+            stmt.bind([sessionId]);
+            if (stmt.step()) {
+              const row = stmt.getAsObject() as { title: string; preview: string };
+              title = "Agent finished";
+              body = row.preview || row.title;
+            }
+          } finally {
+            stmt.free();
+          }
+        } catch {
+          // db read failed, use defaults
         }
-      } catch {
-        // db read failed, use defaults
-      }
 
-      void notifyAllSubscribers(title, body);
+        void notifyAllSubscribers(title, body);
+      })();
     });
   }
 }

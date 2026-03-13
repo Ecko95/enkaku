@@ -1,20 +1,35 @@
 import webpush from "web-push";
+import type initSqlJs from "sql.js";
 import { getDb } from "@/lib/session-store";
+
+type Database = initSqlJs.Database;
 
 interface StoredVapidKeys {
   publicKey: string;
   privateKey: string;
 }
 
-function loadOrCreateVapidKeys(): StoredVapidKeys {
-  const conn = getDb();
+function queryValue(conn: Database, sql: string, params: initSqlJs.BindParams): string | undefined {
+  const stmt = conn.prepare(sql);
+  try {
+    stmt.bind(params);
+    if (stmt.step()) {
+      const row = stmt.getAsObject() as Record<string, initSqlJs.SqlValue>;
+      return row.value as string | undefined;
+    }
+    return undefined;
+  } finally {
+    stmt.free();
+  }
+}
 
-  const row = conn.prepare("SELECT value FROM config WHERE key = 'vapid_keys'").get() as
-    | { value: string }
-    | undefined;
+async function loadOrCreateVapidKeys(): Promise<StoredVapidKeys> {
+  const conn = await getDb();
 
-  if (row) {
-    return JSON.parse(row.value) as StoredVapidKeys;
+  const value = queryValue(conn, "SELECT value FROM config WHERE key = ?", ["vapid_keys"]);
+
+  if (value) {
+    return JSON.parse(value) as StoredVapidKeys;
   }
 
   const keys = webpush.generateVAPIDKeys();
@@ -23,17 +38,14 @@ function loadOrCreateVapidKeys(): StoredVapidKeys {
     privateKey: keys.privateKey,
   };
 
-  conn.prepare("INSERT INTO config (key, value) VALUES ('vapid_keys', ?)").run(
-    JSON.stringify(stored),
-  );
-
+  conn.run("INSERT INTO config (key, value) VALUES (?, ?)", ["vapid_keys", JSON.stringify(stored)]);
   return stored;
 }
 
 let initialized = false;
 
-function ensureVapid(): StoredVapidKeys {
-  const keys = loadOrCreateVapidKeys();
+async function ensureVapid(): Promise<StoredVapidKeys> {
+  const keys = await loadOrCreateVapidKeys();
 
   if (!initialized) {
     webpush.setVapidDetails("mailto:clr@localhost", keys.publicKey, keys.privateKey);
@@ -43,39 +55,44 @@ function ensureVapid(): StoredVapidKeys {
   return keys;
 }
 
-export function getVapidPublicKey(): string {
-  return ensureVapid().publicKey;
+export async function getVapidPublicKey(): Promise<string> {
+  return (await ensureVapid()).publicKey;
 }
 
-export function savePushSubscription(subscription: webpush.PushSubscription): void {
-  const conn = getDb();
-  conn
-    .prepare(
-      "INSERT OR REPLACE INTO push_subscriptions (endpoint, subscription, created_at) VALUES (?, ?, ?)",
-    )
-    .run(subscription.endpoint, JSON.stringify(subscription), Date.now());
+export async function savePushSubscription(subscription: webpush.PushSubscription): Promise<void> {
+  const conn = await getDb();
+  conn.run(
+    "INSERT OR REPLACE INTO push_subscriptions (endpoint, subscription, created_at) VALUES (?, ?, ?)",
+    [subscription.endpoint, JSON.stringify(subscription), Date.now()],
+  );
 }
 
-export function removePushSubscription(endpoint: string): void {
-  const conn = getDb();
-  conn.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?").run(endpoint);
+export async function removePushSubscription(endpoint: string): Promise<void> {
+  const conn = await getDb();
+  conn.run("DELETE FROM push_subscriptions WHERE endpoint = ?", [endpoint]);
 }
 
-function getAllSubscriptions(): { endpoint: string; subscription: webpush.PushSubscription }[] {
-  const conn = getDb();
-  const rows = conn.prepare("SELECT endpoint, subscription FROM push_subscriptions").all() as {
-    endpoint: string;
-    subscription: string;
-  }[];
-  return rows.map((r) => ({
-    endpoint: r.endpoint,
-    subscription: JSON.parse(r.subscription) as webpush.PushSubscription,
-  }));
+async function getAllSubscriptions(): Promise<{ endpoint: string; subscription: webpush.PushSubscription }[]> {
+  const conn = await getDb();
+  const stmt = conn.prepare("SELECT endpoint, subscription FROM push_subscriptions");
+  try {
+    const rows: { endpoint: string; subscription: webpush.PushSubscription }[] = [];
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as { endpoint: string; subscription: string };
+      rows.push({
+        endpoint: row.endpoint,
+        subscription: JSON.parse(row.subscription) as webpush.PushSubscription,
+      });
+    }
+    return rows;
+  } finally {
+    stmt.free();
+  }
 }
 
 export async function notifyAllSubscribers(title: string, body: string): Promise<void> {
-  ensureVapid();
-  const subs = getAllSubscriptions();
+  await ensureVapid();
+  const subs = await getAllSubscriptions();
   if (subs.length === 0) return;
 
   const payload = JSON.stringify({ title, body });
@@ -87,7 +104,7 @@ export async function notifyAllSubscribers(title: string, body: string): Promise
       } catch (err) {
         const status = (err as { statusCode?: number }).statusCode;
         if (status === 404 || status === 410) {
-          removePushSubscription(endpoint);
+          await removePushSubscription(endpoint);
         } else {
           console.error("[push] Failed to send to " + endpoint.slice(0, 60) + ":", err);
         }

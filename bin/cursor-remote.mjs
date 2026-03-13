@@ -9,6 +9,9 @@ import { randomInt } from "crypto";
 import { createServer } from "net";
 import qrcode from "qrcode-terminal";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const projectRoot = resolve(__dirname, "..");
+
 const WORDS = [
   "alpha","amber","anvil","apple","arrow","atlas","azure","badge","baker","beach",
   "berry","blade","blaze","bloom","board","bonus","brave","brick","brook","brush",
@@ -40,9 +43,6 @@ function generateToken() {
   const b = WORDS[randomInt(WORDS.length)];
   return `${a}-${b}`;
 }
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const projectRoot = resolve(__dirname, "..");
 
 const args = process.argv.slice(2);
 

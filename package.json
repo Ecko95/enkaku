@@ -39,12 +39,10 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "postinstall": "npm rebuild better-sqlite3 || true",
     "prepublishOnly": "npm run build && find .next -name '*.map' -delete"
   },
   "dependencies": {
     "@khmyznikov/pwa-install": "^0.6.3",
-    "better-sqlite3": "^12.6.2",
     "highlight.js": "^11.11.1",
     "next": "^15.5.12",
     "qrcode-terminal": "^0.12.0",
@@ -54,6 +52,7 @@
     "react-markdown": "^10.1.0",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1",
+    "sql.js": "^1.14.1",
     "web-haptics": "^0.0.6",
     "web-push": "^3.6.7",
     "zod": "^4.3.6"
@@ -61,10 +60,10 @@
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@tailwindcss/postcss": "^4.2.1",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/sql.js": "^1.4.9",
     "@types/web-push": "^3.6.4",
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.1.6",

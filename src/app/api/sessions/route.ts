@@ -34,12 +34,12 @@ export async function GET(req: Request) {
   const workspace = getWorkspace();
 
   if (all) {
-    const ours = listSessions();
+    const ours = await listSessions();
     return Response.json({ sessions: ours, workspace });
   }
 
   const cursorSessions = await readCursorSessions(workspace);
-  const ourSessions = listSessions(workspace);
+  const ourSessions = await listSessions(workspace);
   const merged = mergeSessions(ourSessions, cursorSessions);
 
   return Response.json({ sessions: merged, workspace });
@@ -52,6 +52,6 @@ export async function DELETE(req: Request) {
   const parsed = parseBody(deleteSessionSchema, raw);
   if ("error" in parsed) return badRequest(parsed.error);
 
-  deleteSession(parsed.data.sessionId);
+  await deleteSession(parsed.data.sessionId);
   return Response.json({ ok: true });
 }
