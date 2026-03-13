@@ -3,6 +3,7 @@ import { promisify } from "util";
 import type { ModelInfo } from "@/lib/types";
 import { serverError, safeErrorMessage } from "@/lib/errors";
 import { MODELS_CACHE_TTL_MS, MODELS_FETCH_TIMEOUT_MS } from "@/lib/constants";
+import { getConfig } from "@/lib/session-store";
 
 const execFileAsync = promisify(execFile);
 
@@ -46,7 +47,12 @@ export async function GET() {
       console.log(`[models] fetching (timeout=${MODELS_FETCH_TIMEOUT_MS}ms)`);
     }
 
-    const { stdout } = await execFileAsync("agent", ["models"], {
+    const agentArgs = ["models"];
+    const trustEnv = process.env.CURSOR_TRUST;
+    const trustConfig = trustEnv === "0" ? false : trustEnv === "1" ? true : (await getConfig("trust")) !== "0";
+    if (trustConfig) agentArgs.push("--trust");
+
+    const { stdout } = await execFileAsync("agent", agentArgs, {
       encoding: "utf-8",
       timeout: MODELS_FETCH_TIMEOUT_MS,
     });

@@ -9,7 +9,7 @@ import { apiFetch } from "@/lib/api-fetch";
 import type { StoredSession } from "@/lib/types";
 import { MessageList } from "./message-list";
 import { ChatInput } from "./chat-input";
-import { MenuIcon } from "./icons";
+import { MenuIcon, SettingsIcon } from "./icons";
 
 interface ChatContainerProps {
   initialSessionId?: string;
@@ -18,6 +18,7 @@ interface ChatContainerProps {
   onSessionIdChange?: (sessionId: string | null) => void;
   onSelectSession?: (id: string) => void;
   onOpenSidebar?: () => void;
+  onOpenSettings?: () => void;
   onOpenQr?: () => void;
 }
 
@@ -28,6 +29,7 @@ export function ChatContainer({
   onSessionIdChange,
   onSelectSession,
   onOpenSidebar,
+  onOpenSettings,
   onOpenQr,
 }: ChatContainerProps) {
   const {
@@ -163,6 +165,16 @@ export function ChatContainer({
               {sessionId.slice(0, 8)}
             </span>
           )}
+          <button
+            onClick={() => {
+              haptics.tap();
+              onOpenSettings?.();
+            }}
+            className="p-2 rounded-md hover:bg-bg-hover transition-colors text-text-muted hover:text-text-secondary"
+            aria-label="Settings"
+          >
+            <SettingsIcon size={16} />
+          </button>
           <button
             onClick={() => {
               haptics.tap();

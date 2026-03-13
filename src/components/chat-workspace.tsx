@@ -5,6 +5,7 @@ import { useHaptics } from "@/hooks/use-haptics";
 import { fetchActiveSessions } from "@/hooks/use-chat";
 import { ChatContainer } from "./chat-container";
 import { SessionSidebar } from "./session-sidebar";
+import { SettingsPanel } from "./settings-panel";
 import { QrModal } from "./qr-modal";
 import { ErrorBoundary } from "./error-boundary";
 import { uuid } from "@/lib/uuid";
@@ -31,6 +32,7 @@ export function ChatWorkspace() {
   const [instances, setInstances] = useState<ChatInstance[]>(() => [makeInstance()]);
   const [activeId, setActiveId] = useState<string>(() => instances[0].id);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
   const haptics = useHaptics();
   const restoredRef = useRef(false);
@@ -150,6 +152,7 @@ export function ChatWorkspace() {
               onSessionIdChange={(sid) => updateSessionId(inst.id, sid)}
               onSelectSession={handleSelectSession}
               onOpenSidebar={() => setSidebarOpen(true)}
+              onOpenSettings={() => setSettingsOpen(true)}
               onOpenQr={() => setQrOpen(true)}
             />
           </ErrorBoundary>
@@ -164,6 +167,8 @@ export function ChatWorkspace() {
         onNewSession={handleNewSession}
         activeStatuses={activeStatuses}
       />
+
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
       <QrModal open={qrOpen} onClose={() => setQrOpen(false)} />
     </div>

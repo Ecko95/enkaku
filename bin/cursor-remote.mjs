@@ -60,6 +60,7 @@ if (args.includes("--help") || args.includes("-h")) {
     -p, --port   Port to run on (default: 3100)
     --no-open    Don't auto-open the browser
     --no-qr      Don't show QR code in terminal
+    --no-trust   Disable workspace trust (agent will ask before actions)
     -v, --verbose  Show all server and agent output
     -h, --help   Show this help
 
@@ -67,6 +68,7 @@ if (args.includes("--help") || args.includes("-h")) {
     clr                          # Start in current folder
     clr ~/projects/my-app        # Start for a specific project
     clr . --port 8080            # Use a different port
+    clr --no-trust               # Require agent to ask before actions
     clr -v                       # Verbose output for debugging
 `);
   process.exit(0);
@@ -77,6 +79,7 @@ let rawPort = process.env.PORT || "3100";
 let noOpen = false;
 let noQr = false;
 let verbose = false;
+let trust = process.env.CURSOR_TRUST !== "0";
 
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -88,6 +91,10 @@ for (let i = 0; i < args.length; i++) {
     noQr = true;
   } else if (a === "--verbose" || a === "-v") {
     verbose = true;
+  } else if (a === "--trust") {
+    trust = true;
+  } else if (a === "--no-trust") {
+    trust = false;
   } else if (!a.startsWith("-")) {
     positional.push(a);
   }
@@ -216,6 +223,7 @@ const child = spawn(nextBin, nextArgs, {
   env: {
     ...process.env,
     CURSOR_WORKSPACE: workspace,
+    CURSOR_TRUST: trust ? "1" : "",
     PORT: port,
     AUTH_TOKEN: authToken,
     CLR_VERBOSE: verbose ? "1" : "",

@@ -11,7 +11,7 @@ import type { ChatRequest } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 function waitForSessionId(
-  child: ReturnType<typeof spawnAgent>,
+  child: Awaited<ReturnType<typeof spawnAgent>>,
   workspace: string,
   prompt: string,
   requestId: string,
@@ -82,7 +82,7 @@ export async function POST(req: Request) {
   try {
     const requestId = randomUUID();
 
-    const child = spawnAgent({
+    const child = await spawnAgent({
       prompt: body.prompt,
       sessionId: body.sessionId,
       workspace,

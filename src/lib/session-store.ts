@@ -140,3 +140,25 @@ export async function deleteSession(sessionId: string): Promise<void> {
   conn.run("DELETE FROM sessions WHERE id = ?", [sessionId]);
   save();
 }
+
+export async function getConfig(key: string): Promise<string | undefined> {
+  const conn = await getDb();
+  const row = queryOne(conn, "SELECT value FROM config WHERE key = ?", [key]);
+  return row?.value as string | undefined;
+}
+
+export async function setConfig(key: string, value: string): Promise<void> {
+  const conn = await getDb();
+  conn.run("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", [key, value]);
+  save();
+}
+
+export async function getAllConfig(): Promise<Record<string, string>> {
+  const conn = await getDb();
+  const rows = queryAll(conn, "SELECT key, value FROM config WHERE key NOT LIKE 'vapid%'");
+  const result: Record<string, string> = {};
+  for (const row of rows) {
+    result[row.key as string] = row.value as string;
+  }
+  return result;
+}

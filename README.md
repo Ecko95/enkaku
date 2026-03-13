@@ -51,6 +51,7 @@ clr [workspace] [options]
 | `-p, --port` | Port to run on (default: `3100`) |
 | `--no-open` | Don't auto-open the browser |
 | `--no-qr` | Don't show QR code in terminal |
+| `--no-trust` | Disable workspace trust (agent will ask before actions) |
 | `-v, --verbose` | Show all server and agent output |
 
 ```bash

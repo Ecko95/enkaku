@@ -29,7 +29,7 @@
     ".next/*.json",
     ".next/BUILD_ID",
     ".next/package.json",
-    "next.config.ts"
+    "next.config.mjs"
   ],
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0 --port 3100",
