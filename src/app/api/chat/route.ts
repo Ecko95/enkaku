@@ -96,7 +96,10 @@ export async function POST(req: Request) {
       promoteToSessionId(requestId, body.sessionId);
     }
 
-    child.stderr?.on("data", () => {});
+    child.stderr?.on("data", (chunk: Buffer) => {
+      const text = chunk.toString().trim();
+      if (text) console.error("[agent stderr]", text);
+    });
 
     const sessionId = await waitForSessionId(child, workspace, body.prompt, requestId);
 
