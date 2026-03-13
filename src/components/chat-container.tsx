@@ -9,6 +9,7 @@ import { apiFetch } from "@/lib/api-fetch";
 import type { StoredSession } from "@/lib/types";
 import { MessageList } from "./message-list";
 import { ChatInput } from "./chat-input";
+import { MenuIcon } from "./icons";
 
 interface ChatContainerProps {
   initialSessionId?: string;
@@ -42,10 +43,8 @@ export function ChatContainer({
     error,
     sendMessage,
     loadSession,
-    setSessionId: _setSessionId,
     setSelectedModel,
     setSelectedMode,
-    clearChat: _clearChat,
     stopStreaming,
     retryLastMessage,
     queuedMessages,
@@ -75,7 +74,7 @@ export function ChatContainer({
     apiFetch("/api/info")
       .then((r) => r.json())
       .then((data) => setWorkspace(data.workspace || ""))
-      .catch((err) => console.warn("Failed to fetch workspace:", err));
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -85,7 +84,7 @@ export function ChatContainer({
       .then((data) => {
         if (data.sessions?.length > 0) setRecentSessions(data.sessions.slice(0, 3));
       })
-      .catch((err) => console.warn("Failed to fetch sessions:", err));
+      .catch(() => {});
   }, [fetchWorkspace]);
 
   useEffect(() => {
@@ -141,20 +140,10 @@ export function ChatContainer({
               haptics.tap();
               onOpenSidebar?.();
             }}
+            aria-label="Open session sidebar"
             className="p-2 rounded-md hover:bg-bg-hover transition-colors text-text-muted hover:text-text-secondary"
           >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <line x1="3" y1="6" x2="21" y2="6" />
-              <line x1="3" y1="12" x2="15" y2="12" />
-              <line x1="3" y1="18" x2="18" y2="18" />
-            </svg>
+            <MenuIcon />
           </button>
           <span className="text-[13px] font-medium text-text-secondary">{dirName}</span>
           {model && isStreaming && (
@@ -177,7 +166,7 @@ export function ChatContainer({
               onOpenQr?.();
             }}
             className="p-2 rounded-md hover:bg-bg-hover transition-colors text-text-muted hover:text-text-secondary"
-            title="Connect device"
+            aria-label="Connect device"
           >
             <svg
               width="20"

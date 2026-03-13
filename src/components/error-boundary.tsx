@@ -4,6 +4,7 @@ import { Component, type ReactNode } from "react";
 
 interface Props {
   children: ReactNode;
+  fallback?: "inline" | "fullscreen";
 }
 
 interface State {
@@ -23,6 +24,25 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (!this.state.error) return this.props.children;
+
+    if (this.props.fallback === "inline") {
+      return (
+        <div className="h-full flex items-center justify-center px-6">
+          <div className="text-center max-w-sm">
+            <p className="text-[13px] font-medium text-text mb-2">Something went wrong</p>
+            <p className="text-[11px] text-text-muted mb-3 font-mono break-all">
+              {this.state.error.message}
+            </p>
+            <button
+              onClick={() => this.setState({ error: null })}
+              className="px-3 py-1 rounded-lg text-[12px] font-medium bg-bg-surface text-text border border-border hover:bg-bg-hover transition-colors"
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div className="h-dvh flex items-center justify-center bg-[#0a0a0b] px-6">

@@ -5,6 +5,7 @@ import type { StoredSession } from "@/lib/types";
 import { useHaptics } from "@/hooks/use-haptics";
 import { apiFetch } from "@/lib/api-fetch";
 import { timeAgo } from "@/lib/format";
+import { RefreshIcon, CloseIcon, PlusIcon, GlobeIcon, Spinner, TrashIcon } from "./icons";
 
 interface SessionSidebarProps {
   open: boolean;
@@ -36,14 +37,16 @@ export function SessionSidebar({
   const [loading, setLoading] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const haptics = useHaptics();
 
   const fetchSessions = useCallback(() => {
+    setFetchError(null);
     const params = showAll ? "?all=true" : "";
     return apiFetch("/api/sessions" + params)
       .then((r) => r.json())
       .then((data) => setSessions(data.sessions || []))
-      .catch((err) => console.warn("Failed to fetch sessions:", err));
+      .catch(() => setFetchError("Failed to load sessions"));
   }, [showAll]);
 
   useEffect(() => {
@@ -69,7 +72,7 @@ export function SessionSidebar({
         body: JSON.stringify({ sessionId }),
       })
         .then(() => fetchSessions())
-        .catch((err) => console.warn("Failed to delete session:", err))
+        .catch(() => setFetchError("Failed to delete session"))
         .finally(() => setConfirmingDelete(null));
     } else {
       haptics.warn();
@@ -84,8 +87,11 @@ export function SessionSidebar({
 
   return (
     <>
-      {open && <div className="fixed inset-0 z-40 bg-black/60" onClick={onClose} />}
+      {open && <div className="fixed inset-0 z-40 bg-black/60" aria-hidden="true" onClick={onClose} />}
       <div
+        role="dialog"
+        aria-label="Session history"
+        aria-hidden={!open}
         className={`fixed top-0 left-0 z-50 h-full w-[280px] bg-bg-elevated border-r border-border transform transition-transform duration-150 flex flex-col ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
@@ -100,36 +106,17 @@ export function SessionSidebar({
                 fetchSessions().finally(() => setLoading(false));
               }}
               disabled={loading}
+              aria-label="Refresh sessions"
               className="p-1 rounded-md hover:bg-bg-hover text-text-muted hover:text-text-secondary transition-colors disabled:opacity-40"
             >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                className={loading ? "animate-spin" : ""}
-              >
-                <path d="M21 12a9 9 0 1 1-6.22-8.56" />
-                <polyline points="21 3 21 9 15 9" />
-              </svg>
+              <RefreshIcon size={14} className={loading ? "animate-spin" : ""} />
             </button>
             <button
               onClick={onClose}
+              aria-label="Close sidebar"
               className="p-1 rounded-md hover:bg-bg-hover text-text-muted hover:text-text-secondary transition-colors"
             >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
+              <CloseIcon size={14} />
             </button>
           </div>
         </div>
@@ -142,17 +129,7 @@ export function SessionSidebar({
             }}
             className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[12px] text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors"
           >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
+            <PlusIcon />
             New session
           </button>
           <button
@@ -160,34 +137,29 @@ export function SessionSidebar({
               haptics.tap();
               setShowAll((v) => !v);
             }}
+            aria-pressed={showAll}
             className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[12px] transition-colors ${
               showAll
                 ? "text-text bg-bg-active"
                 : "text-text-muted hover:text-text-secondary hover:bg-bg-hover"
             }`}
           >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <line x1="2" y1="12" x2="22" y2="12" />
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-            </svg>
+            <GlobeIcon />
             All workspaces
           </button>
         </div>
 
         <div className="overflow-y-auto flex-1 px-2 pb-2">
+          {fetchError && (
+            <div className="mx-1 mb-2 px-2.5 py-2 rounded-md bg-error/10 text-error text-[11px]">
+              {fetchError}
+            </div>
+          )}
           {loading ? (
             <div className="flex items-center gap-2 justify-center py-8 text-text-muted text-[12px]">
-              <span className="w-3 h-3 rounded-full border-2 border-text-muted border-t-transparent animate-spin" />
+              <Spinner />
             </div>
-          ) : sessions.length === 0 ? (
+          ) : sessions.length === 0 && !fetchError ? (
             <p className="text-text-muted text-[12px] text-center py-8">No sessions</p>
           ) : (
             sessions.map((s) => {
@@ -200,6 +172,7 @@ export function SessionSidebar({
                       onSelectSession(s.id);
                       onClose();
                     }}
+                    aria-current={s.id === currentSessionId ? "true" : undefined}
                     className={`group w-full text-left px-2.5 py-2 rounded-md transition-colors ${
                       s.id === currentSessionId
                         ? "bg-bg-active text-text"
@@ -232,37 +205,19 @@ export function SessionSidebar({
                       </button>
                       <button
                         onClick={handleCancelDelete}
+                        aria-label="Cancel delete"
                         className="p-1 rounded text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors"
                       >
-                        <svg
-                          width="10"
-                          height="10"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.5"
-                        >
-                          <line x1="18" y1="6" x2="6" y2="18" />
-                          <line x1="6" y1="6" x2="18" y2="18" />
-                        </svg>
+                        <CloseIcon size={10} />
                       </button>
                     </div>
                   ) : (
                     <button
                       onClick={(e) => handleDeleteClick(e, s.id)}
+                      aria-label="Delete session"
                       className="absolute top-1 right-1 p-1.5 rounded opacity-0 group-hover:opacity-100 hover:bg-bg-surface text-text-muted hover:text-error transition-all"
                     >
-                      <svg
-                        width="12"
-                        height="12"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <polyline points="3 6 5 6 21 6" />
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                      </svg>
+                      <TrashIcon />
                     </button>
                   )}
                 </div>

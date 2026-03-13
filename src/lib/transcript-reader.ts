@@ -1,4 +1,4 @@
-import { readdirSync, statSync, readFileSync, existsSync } from "fs";
+import { readdir, stat, readFile, access } from "fs/promises";
 import { join, resolve } from "path";
 import { homedir } from "os";
 import type { StoredSession, ChatMessage, ToolCallInfo, TodoItem } from "@/lib/types";
@@ -10,15 +10,20 @@ export function workspaceToProjectKey(workspace: string): string {
   return abs.replace(/^\//, "").replace(/\//g, "-");
 }
 
-function findTranscriptsDir(workspace: string): string | null {
+async function findTranscriptsDir(workspace: string): Promise<string | null> {
   const key = workspaceToProjectKey(workspace);
   const dir = join(CURSOR_PROJECTS_DIR, key, "agent-transcripts");
-  return existsSync(dir) ? dir : null;
+  try {
+    await access(dir);
+    return dir;
+  } catch {
+    return null;
+  }
 }
 
-function parseJsonlEntries(jsonlPath: string): Record<string, unknown>[] {
+async function parseJsonlEntries(jsonlPath: string): Promise<Record<string, unknown>[]> {
   try {
-    const content = readFileSync(jsonlPath, "utf-8");
+    const content = await readFile(jsonlPath, "utf-8");
     const entries: Record<string, unknown>[] = [];
     for (const line of content.split("\n")) {
       if (!line.trim()) continue;
@@ -34,8 +39,8 @@ function parseJsonlEntries(jsonlPath: string): Record<string, unknown>[] {
   }
 }
 
-function extractFirstUserMessage(jsonlPath: string): string {
-  for (const entry of parseJsonlEntries(jsonlPath)) {
+async function extractFirstUserMessage(jsonlPath: string): Promise<string> {
+  for (const entry of await parseJsonlEntries(jsonlPath)) {
     if (entry.role === "user") {
       const msg = entry.message as Record<string, unknown> | undefined;
       const content = msg?.content as Array<Record<string, unknown>> | undefined;
@@ -49,19 +54,28 @@ function extractFirstUserMessage(jsonlPath: string): string {
   return "";
 }
 
-function findJsonlFile(entryPath: string, entryName: string): string | null {
-  const stat = statSync(entryPath);
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
-  if (stat.isFile() && entryName.endsWith(".jsonl")) {
+async function findJsonlFile(entryPath: string, entryName: string): Promise<string | null> {
+  const s = await stat(entryPath);
+
+  if (s.isFile() && entryName.endsWith(".jsonl")) {
     return entryPath;
   }
 
-  if (stat.isDirectory()) {
+  if (s.isDirectory()) {
     const inner = join(entryPath, entryName + ".jsonl");
-    if (existsSync(inner)) return inner;
+    if (await pathExists(inner)) return inner;
 
     try {
-      const files = readdirSync(entryPath).filter((f) => f.endsWith(".jsonl"));
+      const files = (await readdir(entryPath)).filter((f) => f.endsWith(".jsonl"));
       if (files.length > 0) return join(entryPath, files[0]);
     } catch {
       // read error
@@ -71,23 +85,23 @@ function findJsonlFile(entryPath: string, entryName: string): string | null {
   return null;
 }
 
-export function readCursorSessions(workspace: string): StoredSession[] {
-  const dir = findTranscriptsDir(workspace);
+export async function readCursorSessions(workspace: string): Promise<StoredSession[]> {
+  const dir = await findTranscriptsDir(workspace);
   if (!dir) return [];
 
   const sessions: StoredSession[] = [];
 
   try {
-    const entries = readdirSync(dir);
+    const entries = await readdir(dir);
 
     for (const entry of entries) {
       const entryPath = join(dir, entry);
-      const jsonl = findJsonlFile(entryPath, entry.replace(".jsonl", ""));
+      const jsonl = await findJsonlFile(entryPath, entry.replace(".jsonl", ""));
       if (!jsonl) continue;
 
-      const stat = statSync(jsonl);
+      const s = await stat(jsonl);
       const sessionId = entry.replace(".jsonl", "");
-      const preview = extractFirstUserMessage(jsonl);
+      const preview = await extractFirstUserMessage(jsonl);
 
       if (!preview) continue;
 
@@ -96,8 +110,8 @@ export function readCursorSessions(workspace: string): StoredSession[] {
         title: preview.slice(0, 60),
         workspace,
         preview,
-        createdAt: stat.birthtimeMs,
-        updatedAt: stat.mtimeMs,
+        createdAt: s.birthtimeMs,
+        updatedAt: s.mtimeMs,
       });
     }
   } catch {
@@ -121,8 +135,8 @@ export interface SessionHistoryResult {
   modifiedAt: number;
 }
 
-export function resolveJsonlPath(workspace: string, sessionId: string): string | null {
-  const dir = findTranscriptsDir(workspace);
+export async function resolveJsonlPath(workspace: string, sessionId: string): Promise<string | null> {
+  const dir = await findTranscriptsDir(workspace);
   if (!dir) return null;
 
   const resolvedDir = resolve(dir);
@@ -131,20 +145,23 @@ export function resolveJsonlPath(workspace: string, sessionId: string): string |
 
   const flatPath = join(dir, sessionId + ".jsonl");
 
-  if (existsSync(entryPath) && statSync(entryPath).isDirectory()) {
-    return findJsonlFile(entryPath, sessionId);
+  if (await pathExists(entryPath)) {
+    const s = await stat(entryPath);
+    if (s.isDirectory()) {
+      return findJsonlFile(entryPath, sessionId);
+    }
   }
-  if (existsSync(flatPath)) {
+  if (await pathExists(flatPath)) {
     return flatPath;
   }
   return null;
 }
 
-export function getSessionModifiedAt(workspace: string, sessionId: string): number {
-  const jsonlPath = resolveJsonlPath(workspace, sessionId);
+export async function getSessionModifiedAt(workspace: string, sessionId: string): Promise<number> {
+  const jsonlPath = await resolveJsonlPath(workspace, sessionId);
   if (!jsonlPath) return 0;
   try {
-    return statSync(jsonlPath).mtimeMs;
+    return (await stat(jsonlPath)).mtimeMs;
   } catch {
     return 0;
   }
@@ -215,13 +232,58 @@ function extractToolCallsFromContent(
   return calls;
 }
 
-export function readSessionMessages(workspace: string, sessionId: string): SessionHistoryResult {
-  const jsonlPath = resolveJsonlPath(workspace, sessionId);
+export function parseLiveEvents(
+  events: Record<string, unknown>[],
+  sessionId: string,
+): { messages: ChatMessage[]; toolCalls: ToolCallInfo[] } {
+  const messages: ChatMessage[] = [];
+  const toolCalls: ToolCallInfo[] = [];
+  const counter = { n: 0 };
+  const baseTimestamp = Date.now() - 60_000;
+
+  for (const event of events) {
+    const role = event.type as string;
+    if (role !== "user" && role !== "assistant") continue;
+
+    const contentArr = (event.message as Record<string, unknown> | undefined)?.content;
+    if (!Array.isArray(contentArr)) continue;
+
+    const textParts: string[] = [];
+    for (const part of contentArr) {
+      if ((part as Record<string, unknown>).type === "text" && (part as Record<string, unknown>).text) {
+        textParts.push((part as Record<string, unknown>).text as string);
+      }
+    }
+
+    let text = textParts.join("");
+    if (role === "user") {
+      text = stripXmlTags(text);
+    }
+
+    if (text.trim()) {
+      messages.push({
+        id: `${sessionId}-live-${counter.n++}`,
+        role: role as "user" | "assistant",
+        content: text,
+        timestamp: baseTimestamp + counter.n,
+      });
+    }
+
+    if (role === "assistant") {
+      toolCalls.push(...extractToolCallsFromContent(contentArr, sessionId, counter, baseTimestamp));
+    }
+  }
+
+  return { messages, toolCalls };
+}
+
+export async function readSessionMessages(workspace: string, sessionId: string): Promise<SessionHistoryResult> {
+  const jsonlPath = await resolveJsonlPath(workspace, sessionId);
   if (!jsonlPath) return { messages: [], toolCalls: [], modifiedAt: 0 };
 
   let modifiedAt = 0;
   try {
-    modifiedAt = statSync(jsonlPath).mtimeMs;
+    modifiedAt = (await stat(jsonlPath)).mtimeMs;
   } catch {
     return { messages: [], toolCalls: [], modifiedAt: 0 };
   }
@@ -231,7 +293,7 @@ export function readSessionMessages(workspace: string, sessionId: string): Sessi
   const counter = { n: 0 };
   const baseTimestamp = modifiedAt - 60_000;
 
-  for (const entry of parseJsonlEntries(jsonlPath)) {
+  for (const entry of await parseJsonlEntries(jsonlPath)) {
     const role = entry.role as string;
     if (role !== "user" && role !== "assistant") continue;
 

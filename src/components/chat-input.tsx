@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import type { AgentMode, ModelInfo } from "@/lib/types";
 import { useHaptics } from "@/hooks/use-haptics";
 import { apiFetch } from "@/lib/api-fetch";
+import { ChevronDown, Spinner, StopIcon, PlusIcon, ArrowUp } from "./icons";
 
 const MODES: { id: AgentMode; label: string }[] = [
   { id: "agent", label: "Agent" },
@@ -44,7 +45,7 @@ export function ChatInput({
       .then((data) => {
         if (!cancelled && data.models?.length > 0) setModels(data.models);
       })
-      .catch((err) => console.warn("Failed to fetch models:", err))
+      .catch(() => {})
       .finally(() => {
         if (!cancelled) setModelsLoading(false);
       });
@@ -98,15 +99,18 @@ export function ChatInput({
             onChange={handleInput}
             onKeyDown={handleKeyDown}
             placeholder={isStreaming ? "Type to queue a message..." : "Ask Cursor anything..."}
+            aria-label="Message input"
             rows={1}
             className="w-full resize-none bg-transparent px-3.5 pt-2.5 pb-1 pr-10 text-[13px] text-text placeholder:text-text-muted focus:outline-none"
           />
 
           <div className="flex items-center justify-between px-2 pb-2">
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1" role="radiogroup" aria-label="Agent mode">
               {MODES.map((mode) => (
                 <button
                   key={mode.id}
+                  role="radio"
+                  aria-checked={selectedMode === mode.id}
                   onClick={() => {
                     haptics.select();
                     onModeChange(mode.id);
@@ -133,31 +137,26 @@ export function ChatInput({
                     haptics.tap();
                     setModelOpen(!modelOpen);
                   }}
+                  aria-haspopup="listbox"
+                  aria-expanded={modelOpen}
+                  aria-label="Select model"
                   className="flex items-center gap-1 px-3 py-1.5 rounded text-[12px] text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors"
                 >
                   {modelsLoading ? (
-                    <span className="w-2.5 h-2.5 rounded-full border border-text-muted border-t-transparent animate-spin" />
+                    <Spinner className="w-2.5 h-2.5" />
                   ) : (
                     <span className="truncate max-w-[150px]">{currentModelLabel}</span>
                   )}
-                  <svg
-                    width="10"
-                    height="10"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                  >
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
+                  <ChevronDown />
                 </button>
 
                 {modelOpen && models.length > 0 && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setModelOpen(false)} />
-                    <div className="absolute bottom-full right-0 mb-1 z-50 w-56 bg-bg-elevated border border-border rounded-lg shadow-xl py-1 max-h-80 overflow-y-auto">
+                    <div role="listbox" aria-label="Models" className="absolute bottom-full right-0 mb-1 z-50 w-56 bg-bg-elevated border border-border rounded-lg shadow-xl py-1 max-h-80 overflow-y-auto">
                       {autoModel && (
                         <ModelRow
+                          key={autoModel.id}
                           model={autoModel}
                           selected={selectedModel === autoModel.id}
                           onSelect={() => {
@@ -192,48 +191,18 @@ export function ChatInput({
                 <button
                   onClick={handleStop}
                   className="p-2 rounded-md text-text-muted hover:text-text transition-colors"
-                  title="Stop streaming"
+                  aria-label="Stop streaming"
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                    <rect x="6" y="6" width="12" height="12" rx="2" />
-                  </svg>
+                  <StopIcon />
                 </button>
               )}
               <button
                 onClick={handleSend}
                 disabled={!value.trim()}
                 className="p-2 rounded-md text-text-muted hover:text-text disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
-                title={isStreaming ? "Queue message" : "Send message"}
+                aria-label={isStreaming ? "Queue message" : "Send message"}
               >
-                {isStreaming ? (
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </svg>
-                ) : (
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <line x1="12" y1="19" x2="12" y2="5" />
-                    <polyline points="5 12 12 5 19 12" />
-                  </svg>
-                )}
+                {isStreaming ? <PlusIcon size={18} /> : <ArrowUp />}
               </button>
             </div>
           </div>
@@ -255,6 +224,8 @@ function ModelRow({
   const haptics = useHaptics();
   return (
     <button
+      role="option"
+      aria-selected={selected}
       onClick={() => {
         haptics.select();
         onSelect();

@@ -33,12 +33,12 @@ export async function GET(req: Request) {
   const workspace = getWorkspace();
 
   if (all) {
-    const ours = listSessions();
+    const ours = await listSessions();
     return Response.json({ sessions: ours, workspace });
   }
 
-  const cursorSessions = readCursorSessions(workspace);
-  const ourSessions = listSessions(workspace);
+  const cursorSessions = await readCursorSessions(workspace);
+  const ourSessions = await listSessions(workspace);
   const merged = mergeSessions(ourSessions, cursorSessions);
 
   return Response.json({ sessions: merged, workspace });
@@ -55,6 +55,6 @@ export async function DELETE(req: Request) {
   if (!body.sessionId || !SESSION_ID_RE.test(body.sessionId)) {
     return Response.json({ error: "invalid sessionId" }, { status: 400 });
   }
-  deleteSession(body.sessionId);
+  await deleteSession(body.sessionId);
   return Response.json({ ok: true });
 }

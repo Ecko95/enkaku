@@ -3,15 +3,17 @@ import {
   resolveJsonlPath,
   readSessionMessages,
   getSessionModifiedAt,
+  parseLiveEvents,
 } from "@/lib/transcript-reader";
 import { getWorkspace } from "@/lib/workspace";
 import { SESSION_ID_RE } from "@/lib/validation";
-import { isActive } from "@/lib/process-registry";
+import { isActive, onProcessExit, getLiveEvents, onLiveUpdate } from "@/lib/process-registry";
 
 export const dynamic = "force-dynamic";
 
 const DEBOUNCE_MS = 150;
 const KEEPALIVE_MS = 15_000;
+const FILE_POLL_MS = 800;
 
 function sseMessage(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -26,59 +28,101 @@ export async function GET(req: Request) {
   }
 
   const workspace = getWorkspace();
-  const jsonlPath = resolveJsonlPath(workspace, sessionId);
+  let jsonlPath = await resolveJsonlPath(workspace, sessionId);
 
-  if (!jsonlPath) {
+  if (!jsonlPath && !isActive(sessionId)) {
     return Response.json({ error: "session not found" }, { status: 404 });
   }
 
   let watcher: FSWatcher | null = null;
   let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let filePollTimer: ReturnType<typeof setInterval> | null = null;
+  let unsubExit: (() => void) | null = null;
+  let unsubLive: (() => void) | null = null;
   let lastSentModified = 0;
   let cancelled = false;
 
-  const stream = new ReadableStream({
-    start(controller) {
-      const initialModified = getSessionModifiedAt(workspace, sessionId);
-      lastSentModified = initialModified;
-      controller.enqueue(sseMessage("connected", { modifiedAt: initialModified, isActive: isActive(sessionId) }));
-
-      const pushUpdate = () => {
+  function startFileWatcher(
+    path: string,
+    controller: ReadableStreamDefaultController,
+    pushUpdate: () => Promise<void>,
+  ) {
+    try {
+      watcher = watch(path, () => {
         if (cancelled) return;
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => void pushUpdate(), DEBOUNCE_MS);
+      });
+      watcher.on("error", () => {
+        cleanup();
+        try { controller.close(); } catch { /* already closed */ }
+      });
+    } catch {
+      // watcher setup failed — rely on process exit
+    }
+  }
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const pushFileUpdate = async () => {
+        if (cancelled || !jsonlPath) return;
         try {
-          const modifiedAt = getSessionModifiedAt(workspace, sessionId);
+          const modifiedAt = await getSessionModifiedAt(workspace, sessionId);
           if (modifiedAt <= lastSentModified) return;
 
-          const { messages, toolCalls } = readSessionMessages(workspace, sessionId);
+          const { messages, toolCalls } = await readSessionMessages(workspace, sessionId);
           lastSentModified = modifiedAt;
           controller.enqueue(sseMessage("update", { messages, toolCalls, modifiedAt, isActive: isActive(sessionId) }));
         } catch {
-          // file read error -- skip this update
+          // file read error — skip
         }
       };
 
-      try {
-        watcher = watch(jsonlPath, () => {
+      if (jsonlPath) {
+        const { messages, toolCalls, modifiedAt: initialModified } = await readSessionMessages(workspace, sessionId);
+        lastSentModified = initialModified;
+        controller.enqueue(sseMessage("connected", { messages, toolCalls, modifiedAt: initialModified, isActive: isActive(sessionId) }));
+        startFileWatcher(jsonlPath, controller, pushFileUpdate);
+      } else {
+        const events = getLiveEvents(sessionId);
+        const { messages, toolCalls } = parseLiveEvents(events, sessionId);
+        controller.enqueue(sseMessage("connected", { messages, toolCalls, modifiedAt: Date.now(), isActive: true }));
+
+        unsubLive = onLiveUpdate(sessionId, () => {
           if (cancelled) return;
-          if (debounceTimer) clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(pushUpdate, DEBOUNCE_MS);
+          const latest = getLiveEvents(sessionId);
+          const parsed = parseLiveEvents(latest, sessionId);
+          controller.enqueue(sseMessage("update", { messages: parsed.messages, toolCalls: parsed.toolCalls, modifiedAt: Date.now(), isActive: isActive(sessionId) }));
         });
 
-        watcher.on("error", () => {
-          // watcher error -- client will reconnect
-          cleanup();
-          try {
-            controller.close();
-          } catch {
-            /* already closed */
-          }
-        });
-      } catch {
-        controller.enqueue(sseMessage("error", { message: "failed to watch file" }));
-        controller.close();
-        return;
+        filePollTimer = setInterval(async () => {
+          if (cancelled) return;
+          const path = await resolveJsonlPath(workspace, sessionId);
+          if (!path) return;
+          jsonlPath = path;
+          if (filePollTimer) { clearInterval(filePollTimer); filePollTimer = null; }
+          if (unsubLive) { unsubLive(); unsubLive = null; }
+          startFileWatcher(path, controller, pushFileUpdate);
+          void pushFileUpdate();
+        }, FILE_POLL_MS);
       }
+
+      unsubExit = onProcessExit(sessionId, async () => {
+        if (cancelled) return;
+        await new Promise((r) => setTimeout(r, 300));
+        try {
+          const { messages, toolCalls, modifiedAt } = await readSessionMessages(workspace, sessionId);
+          if (modifiedAt > lastSentModified) lastSentModified = modifiedAt;
+          controller.enqueue(sseMessage("update", { messages, toolCalls, modifiedAt, isActive: false }));
+        } catch {
+          const events = getLiveEvents(sessionId);
+          const parsed = parseLiveEvents(events, sessionId);
+          try {
+            controller.enqueue(sseMessage("update", { messages: parsed.messages, toolCalls: parsed.toolCalls, modifiedAt: Date.now(), isActive: false }));
+          } catch { /* stream closed */ }
+        }
+      });
 
       keepaliveTimer = setInterval(() => {
         if (cancelled) return;
@@ -96,18 +140,12 @@ export async function GET(req: Request) {
 
   function cleanup() {
     cancelled = true;
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-      debounceTimer = null;
-    }
-    if (keepaliveTimer) {
-      clearInterval(keepaliveTimer);
-      keepaliveTimer = null;
-    }
-    if (watcher) {
-      watcher.close();
-      watcher = null;
-    }
+    if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+    if (filePollTimer) { clearInterval(filePollTimer); filePollTimer = null; }
+    if (unsubExit) { unsubExit(); unsubExit = null; }
+    if (unsubLive) { unsubLive(); unsubLive = null; }
+    if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null; }
+    if (watcher) { watcher.close(); watcher = null; }
   }
 
   return new Response(stream, {

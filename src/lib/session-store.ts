@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { readFile, writeFile, mkdir, access } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
 import type { StoredSession } from "@/lib/types";
@@ -10,39 +10,41 @@ interface StoreData {
 const DATA_DIR = join(homedir(), ".cursor-local-remote");
 const STORE_PATH = join(DATA_DIR, "sessions.json");
 
-function ensureDir() {
-  if (!existsSync(DATA_DIR)) {
-    mkdirSync(DATA_DIR, { recursive: true });
+async function ensureDir() {
+  try {
+    await access(DATA_DIR);
+  } catch {
+    await mkdir(DATA_DIR, { recursive: true });
   }
 }
 
-function readStore(): StoreData {
-  ensureDir();
-  if (!existsSync(STORE_PATH)) return { sessions: [] };
+async function readStore(): Promise<StoreData> {
+  await ensureDir();
   try {
-    return JSON.parse(readFileSync(STORE_PATH, "utf-8"));
+    const content = await readFile(STORE_PATH, "utf-8");
+    return JSON.parse(content);
   } catch {
     return { sessions: [] };
   }
 }
 
-function writeStore(data: StoreData) {
-  ensureDir();
-  writeFileSync(STORE_PATH, JSON.stringify(data, null, 2));
+async function writeStore(data: StoreData) {
+  await ensureDir();
+  await writeFile(STORE_PATH, JSON.stringify(data, null, 2));
 }
 
-export function upsertSession(
+export async function upsertSession(
   sessionId: string,
   workspace: string,
   firstMessage: string,
-): StoredSession {
-  const store = readStore();
+): Promise<StoredSession> {
+  const store = await readStore();
   const existing = store.sessions.find((s) => s.id === sessionId);
 
   if (existing) {
     existing.updatedAt = Date.now();
     if (firstMessage) existing.preview = firstMessage.slice(0, 120);
-    writeStore(store);
+    await writeStore(store);
     return existing;
   }
 
@@ -56,20 +58,20 @@ export function upsertSession(
     updatedAt: Date.now(),
   };
   store.sessions.unshift(session);
-  writeStore(store);
+  await writeStore(store);
   return session;
 }
 
-export function listSessions(workspace?: string): StoredSession[] {
-  const store = readStore();
+export async function listSessions(workspace?: string): Promise<StoredSession[]> {
+  const store = await readStore();
   const sessions = workspace
     ? store.sessions.filter((s) => s.workspace === workspace)
     : store.sessions;
   return sessions.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-export function deleteSession(sessionId: string) {
-  const store = readStore();
+export async function deleteSession(sessionId: string) {
+  const store = await readStore();
   store.sessions = store.sessions.filter((s) => s.id !== sessionId);
-  writeStore(store);
+  await writeStore(store);
 }

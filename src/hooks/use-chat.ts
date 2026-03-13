@@ -8,18 +8,7 @@ import type {
   QueuedMessage,
 } from "@/lib/types";
 import { apiFetch } from "@/lib/api-fetch";
-
-function uuid(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  const bytes = new Uint8Array(16);
-  (typeof crypto !== "undefined" ? crypto : globalThis.crypto).getRandomValues(bytes);
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
+import { uuid } from "@/lib/uuid";
 
 interface UseChatReturn {
   messages: ChatMessage[];
@@ -75,6 +64,7 @@ export function useChat(): UseChatReturn {
   const eventSourceRef = useRef<EventSource | null>(null);
   const lastModifiedRef = useRef<number>(0);
   const sessionIdRef = useRef<string | null>(null);
+  const isStreamingRef = useRef(false);
   const sendMessageRef = useRef<
     ((prompt: string, overrides?: { model?: string; mode?: AgentMode }) => Promise<void>) | undefined
   >(undefined);
@@ -86,6 +76,10 @@ export function useChat(): UseChatReturn {
   useEffect(() => {
     sessionIdRef.current = sessionId;
   }, [sessionId]);
+
+  useEffect(() => {
+    isStreamingRef.current = isStreaming;
+  }, [isStreaming]);
 
   const stopWatching = useCallback(() => {
     if (eventSourceRef.current) {
@@ -115,6 +109,8 @@ export function useChat(): UseChatReturn {
           if (data.modifiedAt) {
             lastModifiedRef.current = data.modifiedAt;
           }
+          if (data.messages?.length > 0) setMessages(data.messages);
+          if (data.toolCalls?.length > 0) setToolCalls(data.toolCalls);
         } catch {
           // ignore
         }
@@ -251,7 +247,7 @@ export function useChat(): UseChatReturn {
 
   const sendMessage = useCallback(
     async (prompt: string, overrides?: { model?: string; mode?: AgentMode }) => {
-      if (isStreaming) {
+      if (isStreamingRef.current) {
         const queued: QueuedMessage = {
           id: uuid(),
           content: prompt,
@@ -310,7 +306,7 @@ export function useChat(): UseChatReturn {
         setIsStreaming(false);
       }
     },
-    [isStreaming, selectedModel, selectedMode, stopWatching, startWatching],
+    [selectedModel, selectedMode, stopWatching, startWatching],
   );
 
   useEffect(() => {
@@ -338,7 +334,7 @@ export function useChat(): UseChatReturn {
   }, []);
 
   const retryLastMessage = useCallback(() => {
-    if (isStreaming) return;
+    if (isStreamingRef.current) return;
     const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
     if (!lastUserMsg) return;
     const prompt = lastUserMsg.content;
@@ -348,7 +344,7 @@ export function useChat(): UseChatReturn {
     }
     setToolCalls((prev) => prev.filter((tc) => tc.timestamp < lastUserMsg.timestamp));
     void sendMessage(prompt).catch(() => {});
-  }, [isStreaming, messages, sendMessage]);
+  }, [messages, sendMessage]);
 
   return {
     messages,

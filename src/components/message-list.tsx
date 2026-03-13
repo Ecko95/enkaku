@@ -5,6 +5,7 @@ import type { ChatMessage, ToolCallInfo, StoredSession, QueuedMessage } from "@/
 import { timeAgo } from "@/lib/format";
 import { MessageBubble } from "./message-bubble";
 import { ToolCallCard, ToolCallGroup, TodoLogCard, isMinorToolCall } from "./tool-call-card";
+import { Spinner, RetryIcon, ClockIcon, ArrowDown } from "./icons";
 
 interface MessageListProps {
   messages: ChatMessage[];
@@ -90,25 +91,14 @@ function QueuedMessageCard({
     <div className="py-2.5 border border-dashed border-text-muted/25 rounded-lg px-3 bg-bg-surface/50">
       <div className="flex items-start gap-2">
         <span className="shrink-0 mt-0.5 text-text-muted/50">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <polyline points="12 6 12 12 16 14" />
-          </svg>
+          <ClockIcon />
         </span>
         <div className="flex-1 min-w-0">
           {editing ? (
             <div className="flex flex-col gap-1.5">
               <textarea
                 autoFocus
+                aria-label="Edit queued message"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
@@ -265,7 +255,7 @@ export function MessageList({
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="flex items-center gap-2 text-text-muted text-[13px]">
-          <span className="w-3.5 h-3.5 rounded-full border-2 border-text-muted border-t-transparent animate-spin" />
+          <Spinner className="w-3.5 h-3.5" />
           Loading session...
         </div>
       </div>
@@ -324,7 +314,7 @@ export function MessageList({
 
           {showThinking && (
             <div className="py-3 flex items-center gap-2 text-text-muted text-[12px]">
-              <span className="w-3 h-3 rounded-full border-2 border-text-muted border-t-transparent animate-spin" />
+              <Spinner />
               Thinking...
             </div>
           )}
@@ -341,20 +331,9 @@ export function MessageList({
               <button
                 onClick={onRetry}
                 className="flex items-center gap-1 text-[10px] text-text-muted/60 hover:text-text-muted transition-colors"
+                aria-label="Retry last message"
               >
-                <svg
-                  width="10"
-                  height="10"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="1 4 1 10 7 10" />
-                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-                </svg>
+                <RetryIcon />
                 Retry last message
               </button>
             </div>
@@ -381,19 +360,10 @@ export function MessageList({
       {!autoScroll && timeline.length > 0 && (
         <button
           onClick={scrollToBottom}
+          aria-label="Scroll to bottom"
           className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-bg-elevated border border-border text-text-muted hover:text-text-secondary text-[11px] shadow-lg transition-colors"
         >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <polyline points="19 12 12 19 5 12" />
-          </svg>
+          <ArrowDown />
           Scroll to bottom
         </button>
       )}

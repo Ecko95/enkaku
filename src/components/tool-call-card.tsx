@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ToolCallInfo } from "@/lib/types";
+import { ChevronDown, Spinner } from "./icons";
 
 const IMPORTANT_TYPES = new Set(["edit", "write", "shell", "todo"]);
 
@@ -111,11 +112,7 @@ function TodoStatusIcon({ status }: { status: string }) {
     );
   }
   if (status.includes("IN_PROGRESS")) {
-    return (
-      <span
-        className={`${cls} inline-block rounded-full border-2 border-text-muted border-t-transparent animate-spin`}
-      />
-    );
+    return <Spinner className={cls} />;
   }
   return (
     <svg
@@ -241,11 +238,13 @@ export function ToolCallGroup({ toolCalls }: { toolCalls: ToolCallInfo[] }) {
     <div className="py-1.5">
       <button
         onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        aria-label={`Tool call group: ${groupSummary(toolCalls)}`}
         className="flex items-center gap-2 text-[12px] text-text-muted hover:text-text-secondary transition-colors w-full text-left"
       >
         <span className={statusColor}>
           {!allDone ? (
-            <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-text-muted border-t-transparent animate-spin" />
+            <Spinner className="w-3.5 h-3.5" />
           ) : (
             <GearIcon className="w-3.5 h-3.5 shrink-0" />
           )}
@@ -255,17 +254,7 @@ export function ToolCallGroup({ toolCalls }: { toolCalls: ToolCallInfo[] }) {
           <span className="font-mono text-text-muted truncate">{groupSummary(toolCalls)}</span>
         </span>
 
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          className={`shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
-        >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
+        <ChevronDown className={`shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
       </button>
 
       {expanded && (
@@ -289,11 +278,13 @@ export function ToolCallCard({ toolCall, defaultExpanded }: ToolCallCardProps) {
     <div className="py-1.5">
       <button
         onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        aria-label={`${actionLabel(toolCall)} ${summaryText(toolCall)}`}
         className="flex items-center gap-2 text-[12px] text-text-muted hover:text-text-secondary transition-colors w-full text-left"
       >
         <span className={statusColor}>
           {isRunning ? (
-            <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-text-muted border-t-transparent animate-spin" />
+            <Spinner className="w-3.5 h-3.5" />
           ) : (
             <TypeIcon type={toolCall.type} />
           )}
@@ -310,17 +301,7 @@ export function ToolCallCard({ toolCall, defaultExpanded }: ToolCallCardProps) {
           <span className="text-text-muted text-[11px] shrink-0">{toolCall.result}</span>
         )}
 
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          className={`shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
-        >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
+        <ChevronDown className={`shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
       </button>
 
       {expanded && (
@@ -385,6 +366,8 @@ export function TodoLogCard({ toolCall }: { toolCall: ToolCallInfo }) {
     <div className="py-2">
       <button
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-label={`Todo list: ${done}/${todos.length} done`}
         className="flex items-center gap-2 text-[12px] text-text-muted hover:text-text-secondary transition-colors w-full text-left"
       >
         <svg
@@ -403,17 +386,7 @@ export function TodoLogCard({ toolCall }: { toolCall: ToolCallInfo }) {
         <span className="text-text-muted text-[11px]">
           {done}/{todos.length} done{inProgress > 0 ? ` · ${inProgress} active` : ""}
         </span>
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          className={`shrink-0 transition-transform ml-auto ${open ? "rotate-180" : ""}`}
-        >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
+        <ChevronDown className={`shrink-0 transition-transform ml-auto ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
         <ul className="mt-1.5 ml-5 pl-3 border-l-2 border-border space-y-0.5 py-1">

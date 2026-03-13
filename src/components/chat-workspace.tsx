@@ -6,6 +6,8 @@ import { fetchActiveSessions } from "@/hooks/use-chat";
 import { ChatContainer } from "./chat-container";
 import { SessionSidebar } from "./session-sidebar";
 import { QrModal } from "./qr-modal";
+import { ErrorBoundary } from "./error-boundary";
+import { uuid } from "@/lib/uuid";
 
 interface ChatInstance {
   id: string;
@@ -13,18 +15,6 @@ interface ChatInstance {
   label: string;
   isStreaming: boolean;
   initialSessionId?: string;
-}
-
-function uuid(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  const bytes = new Uint8Array(16);
-  (typeof crypto !== "undefined" ? crypto : globalThis.crypto).getRandomValues(bytes);
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function makeInstance(initialSessionId?: string): ChatInstance {
@@ -140,15 +130,17 @@ export function ChatWorkspace() {
     <div className="h-dvh">
       {instances.map((inst) => (
         <div key={inst.id} className={inst.id === activeId ? "h-full" : "hidden"}>
-          <ChatContainer
-            initialSessionId={inst.initialSessionId}
-            onLabelChange={(label) => updateLabel(inst.id, label)}
-            onStreamingChange={(s) => updateStreaming(inst.id, s)}
-            onSessionIdChange={(sid) => updateSessionId(inst.id, sid)}
-            onSelectSession={handleSelectSession}
-            onOpenSidebar={() => setSidebarOpen(true)}
-            onOpenQr={() => setQrOpen(true)}
-          />
+          <ErrorBoundary fallback="inline">
+            <ChatContainer
+              initialSessionId={inst.initialSessionId}
+              onLabelChange={(label) => updateLabel(inst.id, label)}
+              onStreamingChange={(s) => updateStreaming(inst.id, s)}
+              onSessionIdChange={(sid) => updateSessionId(inst.id, sid)}
+              onSelectSession={handleSelectSession}
+              onOpenSidebar={() => setSidebarOpen(true)}
+              onOpenQr={() => setQrOpen(true)}
+            />
+          </ErrorBoundary>
         </div>
       ))}
 

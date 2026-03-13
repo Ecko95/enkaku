@@ -3,11 +3,46 @@ import type { ChildProcess } from "child_process";
 interface RunningProcess {
   child: ChildProcess;
   sessionId: string | null;
+  mapKey: string;
   workspace: string;
   startedAt: number;
 }
 
 const processes = new Map<string, RunningProcess>();
+const exitListeners = new Map<string, Set<() => void>>();
+const liveEvents = new Map<string, Record<string, unknown>[]>();
+const liveListeners = new Map<string, Set<() => void>>();
+
+const LIVE_EVENT_TTL_MS = 120_000;
+
+export function pushLiveEvent(sessionId: string, event: Record<string, unknown>): void {
+  let events = liveEvents.get(sessionId);
+  if (!events) {
+    events = [];
+    liveEvents.set(sessionId, events);
+  }
+  events.push(event);
+
+  const listeners = liveListeners.get(sessionId);
+  if (listeners) {
+    for (const cb of listeners) cb();
+  }
+}
+
+export function getLiveEvents(sessionId: string): Record<string, unknown>[] {
+  return liveEvents.get(sessionId) ?? [];
+}
+
+export function onLiveUpdate(sessionId: string, cb: () => void): () => void {
+  let set = liveListeners.get(sessionId);
+  if (!set) {
+    set = new Set();
+    liveListeners.set(sessionId, set);
+  }
+  const captured = set;
+  captured.add(cb);
+  return () => { captured.delete(cb); };
+}
 
 export function registerProcess(
   requestId: string,
@@ -17,19 +52,41 @@ export function registerProcess(
   const entry: RunningProcess = {
     child,
     sessionId: null,
+    mapKey: requestId,
     workspace,
     startedAt: Date.now(),
   };
   processes.set(requestId, entry);
 
   const onExit = () => {
-    processes.delete(requestId);
-    if (entry.sessionId && entry.sessionId !== requestId) {
-      processes.delete(entry.sessionId);
+    processes.delete(entry.mapKey);
+    const listeners = exitListeners.get(entry.mapKey);
+    if (listeners) {
+      exitListeners.delete(entry.mapKey);
+      for (const cb of listeners) cb();
     }
+    setTimeout(() => {
+      liveEvents.delete(entry.mapKey);
+      liveListeners.delete(entry.mapKey);
+    }, LIVE_EVENT_TTL_MS);
   };
   child.on("close", onExit);
   child.on("error", onExit);
+}
+
+export function onProcessExit(sessionId: string, cb: () => void): () => void {
+  if (!processes.has(sessionId)) {
+    cb();
+    return () => {};
+  }
+  let set = exitListeners.get(sessionId);
+  if (!set) {
+    set = new Set();
+    exitListeners.set(sessionId, set);
+  }
+  const captured = set;
+  captured.add(cb);
+  return () => { captured.delete(cb); };
 }
 
 export function promoteToSessionId(requestId: string, sessionId: string): void {
@@ -39,6 +96,7 @@ export function promoteToSessionId(requestId: string, sessionId: string): void {
   if (sessionId !== requestId) {
     processes.set(sessionId, entry);
     processes.delete(requestId);
+    entry.mapKey = sessionId;
   }
 }
 

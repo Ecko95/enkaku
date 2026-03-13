@@ -17,18 +17,18 @@ export async function GET(req: Request) {
   const workspace = getWorkspace();
 
   if (checkOnly) {
-    const modifiedAt = getSessionModifiedAt(workspace, sessionId);
+    const modifiedAt = await getSessionModifiedAt(workspace, sessionId);
     return Response.json({ sessionId, modifiedAt });
   }
 
   if (sinceParam) {
     const since = parseInt(sinceParam, 10);
-    const modifiedAt = getSessionModifiedAt(workspace, sessionId);
+    const modifiedAt = await getSessionModifiedAt(workspace, sessionId);
     if (!isNaN(since) && modifiedAt <= since) {
       return Response.json({ sessionId, modifiedAt, messages: null, toolCalls: null });
     }
   }
 
-  const { messages, toolCalls, modifiedAt } = readSessionMessages(workspace, sessionId);
+  const { messages, toolCalls, modifiedAt } = await readSessionMessages(workspace, sessionId);
   return Response.json({ messages, toolCalls, sessionId, modifiedAt });
 }

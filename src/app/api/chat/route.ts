@@ -1,7 +1,7 @@
 import { spawnAgent } from "@/lib/cursor-cli";
 import { getWorkspace } from "@/lib/workspace";
 import { upsertSession } from "@/lib/session-store";
-import { registerProcess, promoteToSessionId } from "@/lib/process-registry";
+import { registerProcess, promoteToSessionId, pushLiveEvent } from "@/lib/process-registry";
 import { SESSION_ID_RE } from "@/lib/validation";
 import type { ChatRequest, AgentMode } from "@/lib/types";
 
@@ -19,13 +19,13 @@ function waitForSessionId(
   return new Promise((resolve) => {
     let found = false;
     let buffer = "";
+    let resolvedSessionId: string | null = null;
 
     const timer = setTimeout(() => {
       if (!found) resolve(null);
     }, INIT_TIMEOUT_MS);
 
     child.stdout?.on("data", (chunk: Buffer) => {
-      if (found) return;
       buffer += chunk.toString();
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
@@ -34,12 +34,18 @@ function waitForSessionId(
         if (!line.trim()) continue;
         try {
           const event = JSON.parse(line);
-          if (event.type === "system" && event.subtype === "init" && event.session_id) {
+
+          if (!found && event.type === "system" && event.subtype === "init" && event.session_id) {
             found = true;
+            resolvedSessionId = event.session_id;
             clearTimeout(timer);
-            upsertSession(event.session_id, workspace, prompt);
+            void upsertSession(event.session_id, workspace, prompt);
             promoteToSessionId(requestId, event.session_id);
             resolve(event.session_id);
+          }
+
+          if (resolvedSessionId && (event.type === "user" || event.type === "assistant")) {
+            pushLiveEvent(resolvedSessionId, event);
           }
         } catch {
           // non-json line
@@ -95,7 +101,8 @@ export async function POST(req: Request) {
   const workspace = getWorkspace();
 
   try {
-    const requestId = crypto.randomUUID();
+    const { randomUUID } = await import("node:crypto");
+    const requestId = randomUUID();
 
     const child = spawnAgent({
       prompt: body.prompt,
@@ -116,6 +123,7 @@ export async function POST(req: Request) {
     const sessionId = await waitForSessionId(child, workspace, body.prompt, requestId);
 
     if (!sessionId) {
+      child.kill("SIGTERM");
       return Response.json({ error: "Agent failed to start" }, { status: 500 });
     }
 
