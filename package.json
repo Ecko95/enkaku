@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jonmakinen/cursor-local-remote.git"
+    "url": "https://github.com/jon-makinen/cursor-local-remote.git"
   },
   "keywords": [
     "cursor",
@@ -38,7 +38,7 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 3100",
     "lint": "next lint",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build && rm -f .next/server/**/*.map"
   },
   "dependencies": {
     "next": "^15.3.3",

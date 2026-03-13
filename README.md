@@ -86,7 +86,7 @@ The best workflow is to **start a session in Cursor on your desktop**, then cont
 Clone the repo and run in dev mode:
 
 ```bash
-git clone https://github.com/jonmakinen/cursor-local-remote.git
+git clone https://github.com/jon-makinen/cursor-local-remote.git
 cd cursor-local-remote
 npm install
 npm run dev

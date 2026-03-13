@@ -89,7 +89,7 @@ const authToken = process.env.AUTH_TOKEN || randomBytes(24).toString("hex");
 const authUrl = `${localUrl}?token=${authToken}`;
 
 console.log("");
-console.log("\x1b[36m ██████╗██╗     ██████╗ ");
+console.log("\x1b[97m ██████╗██╗     ██████╗ ");
 console.log("██╔════╝██║     ██╔══██╗");
 console.log("██║     ██║     ██████╔╝");
 console.log("██║     ██║     ██╔══██╗");
@@ -98,10 +98,10 @@ console.log(" ╚═════╝╚══════╝╚═╝  ╚═╝\
 console.log(`  \x1b[2mWorkspace:\x1b[0m   ${workspace}`);
 console.log(`  \x1b[2mLocal:\x1b[0m       ${localUrl}`);
 if (networkUrl) {
-  console.log(`  \x1b[2mNetwork:\x1b[0m     \x1b[36m${networkUrl}\x1b[0m`);
+  console.log(`  \x1b[2mNetwork:\x1b[0m     \x1b[97m${networkUrl}\x1b[0m`);
 }
-console.log(`  \x1b[2mAuth token:\x1b[0m  \x1b[33m${authToken}\x1b[0m`);
-console.log(`  \x1b[2mAuth link:\x1b[0m   \x1b[4m\x1b[36m${authUrl}\x1b[0m`);
+console.log(`  \x1b[2mAuth token:\x1b[0m  \x1b[97m${authToken}\x1b[0m`);
+console.log(`  \x1b[2mAuth link:\x1b[0m   \x1b[4m\x1b[97m${authUrl}\x1b[0m`);
 console.log("");
 
 const qrUrl = networkUrl ? `${networkUrl}?token=${authToken}` : null;
