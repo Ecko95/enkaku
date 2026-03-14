@@ -3,8 +3,8 @@ import { serverError } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
-const BOOL_KEYS = new Set(["trust", "sound"]);
-const STRING_KEYS = new Set(["default_model", "starred_projects"]);
+const BOOL_KEYS = new Set(["trust", "sound", "pwa_prompt"]);
+const STRING_KEYS = new Set(["default_model", "starred_projects", "webhook_url"]);
 
 export async function GET() {
   try {
@@ -12,8 +12,10 @@ export async function GET() {
     const settings: Record<string, boolean | string> = {
       trust: true,
       sound: true,
+      pwa_prompt: true,
       default_model: "auto",
       starred_projects: "[]",
+      webhook_url: "",
     };
     for (const [key, value] of Object.entries(raw)) {
       if (BOOL_KEYS.has(key)) {

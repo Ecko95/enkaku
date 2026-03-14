@@ -31,8 +31,18 @@ function makeInstance(initialSessionId?: string, initialWorkspace?: string): Cha
   };
 }
 
+function getHashSessionId(): string | null {
+  if (typeof window === "undefined") return null;
+  const hash = window.location.hash;
+  const match = hash.match(/session=([a-f0-9-]+)/i);
+  return match?.[1] ?? null;
+}
+
 export function ChatWorkspace() {
-  const [instances, setInstances] = useState<ChatInstance[]>(() => [makeInstance()]);
+  const [instances, setInstances] = useState<ChatInstance[]>(() => {
+    const hashSession = getHashSessionId();
+    return [makeInstance(hashSession ?? undefined)];
+  });
   const [activeId, setActiveId] = useState<string>(() => instances[0].id);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -41,6 +51,12 @@ export function ChatWorkspace() {
   const haptics = useHaptics();
   const restoredRef = useRef(false);
   const settingsLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (window.location.hash.includes("session=")) {
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+  }, []);
 
   useEffect(() => {
     if (settingsLoadedRef.current) return;

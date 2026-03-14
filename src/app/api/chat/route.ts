@@ -2,13 +2,18 @@ import { randomUUID } from "node:crypto";
 import { spawnAgent } from "@/lib/cursor-cli";
 import { getWorkspace } from "@/lib/workspace";
 import { upsertSession } from "@/lib/session-store";
-import { registerProcess, promoteToSessionId, pushLiveEvent } from "@/lib/process-registry";
+import { registerProcess, promoteToSessionId, pushLiveEvent, setProcessExitHook } from "@/lib/process-registry";
 import { chatRequestSchema, parseBody } from "@/lib/validation";
 import { badRequest, serverError, safeErrorMessage, parseJsonBody } from "@/lib/errors";
 import { AGENT_INIT_TIMEOUT_MS } from "@/lib/constants";
+import { notifyAgentComplete } from "@/lib/ntfy";
 import type { ChatRequest } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+setProcessExitHook((sessionId, workspace) => {
+  void notifyAgentComplete(sessionId, workspace);
+});
 
 function waitForSessionId(
   child: Awaited<ReturnType<typeof spawnAgent>>,

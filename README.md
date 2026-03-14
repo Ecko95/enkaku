@@ -2,7 +2,7 @@
 
 Control Cursor from your phone, tablet or any browser on your local network. Great for monitoring and nudging Cursor while in the bathroom, watching a movie or cooking food.
 
-A local web UI that talks to Cursor's CLI agent on your machine. No cloud, accounts or other bs just on your local network. Also added some rudamentary security so that you need a key to access it incase you have many in a Wifi network. Important to only use this on trusted network that are safe, because the security is easy to bruteforce if you are in the same network.
+A local web UI that talks to Cursor's CLI agent on your machine. No cloud, accounts or other bs — just on your local network. Also added some rudimentary security so that you need a key to access it incase you have many in a Wifi network. Important to only use this on trusted network that are safe, because the security is easy to bruteforce if you are in the same network.
 
 ## Demo
 https://github.com/user-attachments/assets/6b2284fd-0e3d-46c9-ae63-86bbd672ad72
@@ -40,6 +40,35 @@ A QR code pops up in your terminal — scan it from your phone and you're connec
 - **Git panel** — view diffs, commit, push, pull, switch branches — all from the UI
 - **Session management** — browse, resume, archive, and export past sessions
 - **PWA ready** — install as an app on your phone's home screen
+- **Notifications** — tab title flash + sound when agent finishes, optional webhook for push-to-phone (e.g. Discord)
+
+## Notifications
+
+When the agent finishes a task, CLR notifies you in two ways:
+
+**Built-in (no setup):** If the browser tab is in the background, the tab title flashes ("Done! - CLR" or "Error - CLR"), the favicon gets a colored badge, and a sound plays. When you switch back to the tab you'll see a banner showing the result.
+
+**Webhook (optional):** For real push notifications — even with the phone locked or browser closed — you can configure a webhook URL in Settings. When the agent completes, CLR sends a POST with a JSON payload:
+
+```json
+{
+  "event": "agent_complete",
+  "title": "Agent finished - my-project",
+  "message": "Session abc12345 completed",
+  "sessionId": "abc12345-...",
+  "workspace": "/path/to/project",
+  "timestamp": 1710000000000
+}
+```
+
+This works with any service that accepts incoming webhooks:
+
+- **Slack** — create an [Incoming Webhook](https://api.slack.com/messaging/webhooks) and paste the URL
+- **Discord** — create a [Webhook](https://support.discord.com/hc/en-us/articles/228383668) in channel settings
+- **ntfy** — use `https://ntfy.sh/your-topic` (free, open source, has [mobile apps](https://ntfy.sh))
+- **Custom** — any endpoint that accepts a JSON POST
+
+Set it up in the Settings panel and hit "Send test" to verify.
 
 ## Usage
 
@@ -103,6 +132,7 @@ All endpoints require a valid token (cookie or `Bearer` header).
 | `/api/upload` | `POST` | Upload images (multipart/form-data) |
 | `/api/settings` | `GET` | Get current settings |
 | `/api/settings` | `PATCH` | Update settings. Body: `{ key, value }` |
+| `/api/notifications/test` | `POST` | Send a test webhook notification |
 | `/api/info` | `GET` | Network info, auth URL, and workspace path |
 
 ### Environment variables
@@ -122,7 +152,7 @@ All endpoints require a valid token (cookie or `Bearer` header).
 
 ## Development
 
-Contributions are welcome. Mainly created this so that I can use cursor when I don't feel like being at my desk. Whole project vibecoded with cursor, obviously.
+Contributions are welcome! Mainly created this so I can use Cursor when I don't feel like being at my desk. The whole project was vibecoded with Cursor, obviously. Run `npm run dev` to start the dev server.
 
 ```bash
 git clone https://github.com/jon-makinen/cursor-local-remote.git

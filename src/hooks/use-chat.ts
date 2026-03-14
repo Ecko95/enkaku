@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import type { ChatMessage, AgentMode } from "@/lib/types";
 import { apiFetch } from "@/lib/api-fetch";
 import { uuid } from "@/lib/uuid";
+import { STREAMING_HEALTH_CHECK_MS } from "@/lib/constants";
 import { useSessionWatch } from "./use-session-watch";
 import { useMessageQueue } from "./use-message-queue";
 
@@ -221,6 +222,22 @@ export function useChat(initialModel = "auto"): UseChatReturn {
     const overrides = msg.model || msg.mode ? { model: msg.model, mode: msg.mode } : undefined;
     setTimeout(() => { sendMessageRef.current?.(msg.content, overrides); }, 0);
   }, [queueHook]);
+
+  useEffect(() => {
+    if (!isStreaming) return;
+    const timer = setInterval(async () => {
+      const sid = sessionIdRef.current;
+      if (!sid || !isStreamingRef.current) return;
+      try {
+        const active = await fetchActiveSessions();
+        if (!active.includes(sid)) {
+          setIsStreaming(false);
+          await watch.refreshFromHistory(sid, workspaceRef.current);
+        }
+      } catch { /* ignore */ }
+    }, STREAMING_HEALTH_CHECK_MS);
+    return () => clearInterval(timer);
+  }, [isStreaming, watch]);
 
   const retryLastMessage = useCallback(() => {
     if (isStreamingRef.current) return;

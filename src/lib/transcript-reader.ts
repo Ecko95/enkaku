@@ -250,6 +250,23 @@ function extractToolCallsFromContent(
     const done = todos?.filter((t) => t.status.includes("COMPLETED")).length ?? 0;
     const total = todos?.length ?? 0;
 
+    let toolDiff: string | undefined;
+    let toolDiffStartLine: number | undefined;
+    if (type === "edit" && typeof input.old_string === "string" && typeof input.new_string === "string") {
+      const oldLines = (input.old_string as string).split("\n").map((l) => `-${l}`);
+      const newLines = (input.new_string as string).split("\n").map((l) => `+${l}`);
+      toolDiff = [...oldLines, ...newLines].join("\n");
+    } else if (type === "write" && typeof input.contents === "string") {
+      const lines = (input.contents as string).split("\n");
+      toolDiff = lines.map((l) => `+${l}`).join("\n");
+      if (lines.length > 30) {
+        toolDiff = lines.slice(0, 30).map((l) => `+${l}`).join("\n") + "\n+... (" + (lines.length - 30) + " more lines)";
+      }
+    }
+    if (typeof input.start_line === "number") {
+      toolDiffStartLine = input.start_line as number;
+    }
+
     calls.push({
       id: `${sessionId}-tc-${counter.n++}`,
       callId: `${sessionId}-tc-${counter.n}`,
@@ -263,6 +280,8 @@ function extractToolCallsFromContent(
             ? (input.pattern as string)
             : undefined,
       status: "completed",
+      diff: toolDiff,
+      diffStartLine: toolDiffStartLine,
       result: type === "todo" && total > 0 ? `${total} items · ${done} done` : undefined,
       todos,
       timestamp: baseTimestamp + counter.n,

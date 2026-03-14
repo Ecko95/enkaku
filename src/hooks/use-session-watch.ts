@@ -65,6 +65,7 @@ export function useSessionWatch(options: UseSessionWatchOptions = {}) {
             onStreamStartRef.current?.();
           } else {
             setIsActive(false);
+            onStreamEndRef.current?.();
           }
           if (data.modifiedAt) lastModifiedRef.current = data.modifiedAt;
           if (data.messages?.length > 0) setMessages(data.messages);
@@ -91,7 +92,10 @@ export function useSessionWatch(options: UseSessionWatchOptions = {}) {
       });
 
       es.addEventListener("error", () => {
-        // EventSource auto-reconnects
+        if (es.readyState === EventSource.CLOSED) {
+          setIsActive(false);
+          onStreamEndRef.current?.();
+        }
       });
     },
     [stopWatching, applyUpdate],

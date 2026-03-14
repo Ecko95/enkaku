@@ -99,6 +99,12 @@ function rowToSession(row: Record<string, SqlValue>): StoredSession {
   };
 }
 
+export async function getSessionTitle(sessionId: string): Promise<string | null> {
+  const conn = await getDb();
+  const row = queryOne(conn, "SELECT title FROM sessions WHERE id = ?", [sessionId]);
+  return row ? (row.title as string) : null;
+}
+
 export async function upsertSession(
   sessionId: string,
   workspace: string,

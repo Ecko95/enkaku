@@ -4,12 +4,13 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useChat } from "@/hooks/use-chat";
 import { useHaptics } from "@/hooks/use-haptics";
 import { useSound } from "@/hooks/use-sound";
+import { useNotification } from "@/hooks/use-notification";
 import { apiFetch } from "@/lib/api-fetch";
 import type { StoredSession } from "@/lib/types";
 import { MessageList } from "./message-list";
 import { ChatInput } from "./chat-input";
 import { exportSessionMarkdown } from "@/lib/export";
-import { MenuIcon, SettingsIcon, ExportIcon, CheckIcon, GitBranchIcon } from "./icons";
+import { MenuIcon, SettingsIcon, ExportIcon, CheckIcon, GitBranchIcon, CloseIcon } from "./icons";
 import { GitPanel } from "./git-panel";
 
 interface ChatContainerProps {
@@ -62,6 +63,7 @@ export function ChatContainer({
 
   const haptics = useHaptics();
   const sound = useSound();
+  const notification = useNotification();
   const [workspace, setWorkspace] = useState<string>("");
   const [recentSessions, setRecentSessions] = useState<StoredSession[]>([]);
   const [elapsed, setElapsed] = useState(0);
@@ -112,14 +114,19 @@ export function ChatContainer({
   useEffect(() => {
     if (isStreaming && !prevStreamingRef.current) {
       streamStartRef.current = Date.now();
+      notification.dismiss();
     }
     if (prevStreamingRef.current && !isStreaming) {
       const duration = Date.now() - streamStartRef.current;
       const longEnough = duration > 3000;
+      const elapsedSec = Math.floor(duration / 1000);
       if (error) {
         if (longEnough || document.hidden) sound.playError();
       } else {
         if (longEnough || document.hidden) sound.playComplete();
+      }
+      if (document.hidden) {
+        notification.notify(error ? "error" : "complete", elapsedSec);
       }
     }
     prevStreamingRef.current = isStreaming;
@@ -286,6 +293,34 @@ export function ChatContainer({
       {error && (
         <div className="shrink-0 px-4 py-2 border-b border-error/20 text-error text-[12px] bg-error/5">
           {error}
+        </div>
+      )}
+
+      {notification.pending && (
+        <div
+          className={`shrink-0 flex items-center justify-between px-4 py-2 border-b text-[12px] ${
+            notification.pending.type === "error"
+              ? "border-error/20 text-error bg-error/5"
+              : "border-success/20 text-success bg-success/5"
+          }`}
+        >
+          <span>
+            {notification.pending.type === "error" ? "Agent errored" : "Agent finished"}
+            {notification.pending.elapsed != null && notification.pending.elapsed > 0 && (
+              <span className="opacity-60 ml-1">
+                ({notification.pending.elapsed >= 60
+                  ? `${Math.floor(notification.pending.elapsed / 60)}m ${notification.pending.elapsed % 60}s`
+                  : `${notification.pending.elapsed}s`})
+              </span>
+            )}
+          </span>
+          <button
+            onClick={notification.dismiss}
+            className="p-0.5 rounded hover:bg-bg-hover transition-colors"
+            aria-label="Dismiss notification"
+          >
+            <CloseIcon size={12} />
+          </button>
         </div>
       )}
 

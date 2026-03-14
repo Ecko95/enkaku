@@ -362,6 +362,7 @@ interface FileChange {
   shortPath: string;
   writes: number;
   edits: number;
+  diffs: { diff: string; startLine?: number }[];
 }
 
 function aggregateFileChanges(toolCalls: ToolCallInfo[]): FileChange[] {
@@ -370,13 +371,54 @@ function aggregateFileChanges(toolCalls: ToolCallInfo[]): FileChange[] {
     if ((tc.type !== "write" && tc.type !== "edit") || !tc.path) continue;
     let entry = byPath.get(tc.path);
     if (!entry) {
-      entry = { path: tc.path, shortPath: shortenPath(tc.path), writes: 0, edits: 0 };
+      entry = { path: tc.path, shortPath: shortenPath(tc.path), writes: 0, edits: 0, diffs: [] };
       byPath.set(tc.path, entry);
     }
     if (tc.type === "write") entry.writes++;
     else entry.edits++;
+    if (tc.diff) entry.diffs.push({ diff: tc.diff, startLine: tc.diffStartLine });
   }
   return Array.from(byPath.values()).sort((a, b) => (b.writes + b.edits) - (a.writes + a.edits));
+}
+
+function FileChangeRow({ change }: { change: FileChange }) {
+  const [open, setOpen] = useState(false);
+  const haptics = useHaptics();
+  const hasDiffs = change.diffs.length > 0;
+
+  return (
+    <li>
+      <button
+        onClick={() => { if (hasDiffs) { haptics.tap(); setOpen((v) => !v); } }}
+        className={`flex items-center gap-2 text-[11px] font-mono w-full text-left py-0.5 ${hasDiffs ? "hover:text-text-secondary cursor-pointer" : ""}`}
+      >
+        <svg
+          className="w-3 h-3 shrink-0 text-text-muted"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+        </svg>
+        <span className="text-text-secondary truncate flex-1" title={change.path}>{change.shortPath}</span>
+        <span className="text-text-muted shrink-0">
+          {change.edits > 0 && change.writes > 0
+            ? `${change.edits}e ${change.writes}w`
+            : change.edits > 0
+              ? `${change.edits} edit${change.edits > 1 ? "s" : ""}`
+              : `${change.writes} write${change.writes > 1 ? "s" : ""}`}
+        </span>
+        {hasDiffs && <ChevronDown className={`shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />}
+      </button>
+      {open && change.diffs.map((d, i) => (
+        <div key={i} className="mt-1 mb-2">
+          <DiffBlock diff={d.diff} startLine={d.startLine} />
+        </div>
+      ))}
+    </li>
+  );
 }
 
 export function ChangesSummary({ toolCalls }: { toolCalls: ToolCallInfo[] }) {
@@ -421,36 +463,15 @@ export function ChangesSummary({ toolCalls }: { toolCalls: ToolCallInfo[] }) {
       </button>
       {expanded && (
         <ul className="mt-1.5 ml-5 pl-3 border-l-2 border-border space-y-0.5 py-1">
-          {changes.map((c) => (
-            <li key={c.path} className="flex items-center gap-2 text-[11px] font-mono">
-              <svg
-                className="w-3 h-3 shrink-0 text-text-muted"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-              </svg>
-              <span className="text-text-secondary truncate flex-1" title={c.path}>{c.shortPath}</span>
-              <span className="text-text-muted shrink-0">
-                {c.edits > 0 && c.writes > 0
-                  ? `${c.edits}e ${c.writes}w`
-                  : c.edits > 0
-                    ? `${c.edits} edit${c.edits > 1 ? "s" : ""}`
-                    : `${c.writes} write${c.writes > 1 ? "s" : ""}`}
-              </span>
-            </li>
-          ))}
+          {changes.map((c) => <FileChangeRow key={c.path} change={c} />)}
         </ul>
       )}
     </div>
   );
 }
 
-export function TodoLogCard({ toolCall }: { toolCall: ToolCallInfo }) {
-  const [open, setOpen] = useState(true);
+export function TodoLogCard({ toolCall, defaultOpen = true }: { toolCall: ToolCallInfo; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
   const haptics = useHaptics();
   const todos = toolCall.todos;
   if (!todos || todos.length === 0) return null;

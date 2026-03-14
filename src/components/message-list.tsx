@@ -301,6 +301,15 @@ export function MessageList({
   const lastIsUser = lastItem?.kind === "message" && lastItem.message?.role === "user";
   const showThinking = isStreaming && !hasRunningToolCalls && lastIsUser;
 
+  let lastTodoId: string | undefined;
+  for (let i = timeline.length - 1; i >= 0; i--) {
+    const t = timeline[i];
+    if (t.kind === "toolcall" && t.toolCall?.type === "todo") {
+      lastTodoId = t.toolCall.id;
+      break;
+    }
+  }
+
   const lastMessage = messages[messages.length - 1];
   const showRetry = !isStreaming && lastMessage?.role === "user" && onRetry;
 
@@ -319,7 +328,7 @@ export function MessageList({
               }
               if (item.kind === "toolcall" && item.toolCall) {
                 if (item.toolCall.type === "todo") {
-                  return <TodoLogCard key={item.toolCall.id} toolCall={item.toolCall} />;
+                  return <TodoLogCard key={item.toolCall.id} toolCall={item.toolCall} defaultOpen={item.toolCall.id === lastTodoId} />;
                 }
                 return <ToolCallCard key={item.toolCall.id} toolCall={item.toolCall} />;
               }
