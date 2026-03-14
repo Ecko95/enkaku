@@ -33,22 +33,13 @@ A QR code pops up in your terminal — scan it from your phone and you're connec
 
 ## Features
 
-- **Send prompts** to Cursor's agent from any device on your network
-- **Watch responses stream in** — text, tool calls, file edits, shell commands
-- **Pick a model** — fetches your available models from Cursor
-- **Switch modes** — Agent, Ask, or Plan
-- **Browse sessions** — see all past Cursor sessions for the workspace
-- **Live tail** — watch an active desktop session update in real time
-- **Resume sessions** — continue any past session from the web UI
-- **Stop / retry / copy** — cancel a running response, retry, or copy any message
-- **Install as app** — PWA support, add to home screen on iOS/Android for a native feel
-- **Push notifications** — get notified when the agent finishes while the tab is in the background
-- **Settings** — toggle workspace trust, notifications, and sound from the UI
-- **Haptic feedback** — tactile feedback on mobile devices
-- **Sound effects** — audio cues on completion and errors
-- **Multi-tab sessions** — work with multiple chat sessions side by side
-- **Share via QR** — in-app QR code to quickly connect another device
-- **Auto-port** — if the default port is busy, the CLI finds the next available one
+- **QR connect** — scan to connect your phone instantly and continue with phone coding session
+- **Full agent control** — send prompts, pick models, switch modes, stop/retry from any device
+- **Live streaming** — watch responses, tool calls, and file edits in real time
+- **Multi-project** — switch between all your Cursor projects, star favorites, browse sessions across workspaces
+- **Git panel** — view diffs, commit, push, pull, switch branches — all from the UI
+- **Session management** — browse, resume, archive, and export past sessions
+- **PWA ready** — install as an app on your phone's home screen
 
 ## Usage
 
@@ -97,20 +88,22 @@ All endpoints require a valid token (cookie or `Bearer` header).
 
 | Endpoint | Method | Description |
 | --- | --- | --- |
-| `/api/chat` | `POST` | Send a prompt. Returns an NDJSON stream of agent events. Body: `{ prompt, sessionId?, model?, mode? }` |
+| `/api/chat` | `POST` | Send a prompt. Body: `{ prompt, sessionId?, model?, mode?, workspace? }` |
 | `/api/models` | `GET` | List available models from `agent models` (cached 5 min) |
-| `/api/sessions` | `GET` | Session list (merged Cursor + CLR sessions). `?all=true` for all workspaces |
+| `/api/sessions` | `GET` | Session list. `?workspace=<path>` to filter, `?archived=true` to include archived |
+| `/api/sessions` | `PATCH` | Archive/unarchive sessions. Body: `{ action, sessionId? }` |
 | `/api/sessions` | `DELETE` | Delete a stored session. Body: `{ sessionId }` |
 | `/api/sessions/active` | `GET` | List currently running agent session IDs |
 | `/api/sessions/active` | `DELETE` | Kill a running agent process. Body: `{ sessionId }` |
-| `/api/sessions/history` | `GET` | Full transcript for a session. `?id=<sessionId>` |
-| `/api/sessions/watch` | `GET` | SSE stream for live session updates. `?id=<sessionId>` |
-| `/api/settings` | `GET` | Get current settings (trust, notifications, sound) |
-| `/api/settings` | `PATCH` | Update settings. Body: `{ trust?, notifications?, sound? }` (booleans) |
+| `/api/sessions/history` | `GET` | Full transcript for a session. `?id=<sessionId>&workspace=<path>` |
+| `/api/sessions/watch` | `GET` | SSE stream for live session updates. `?id=<sessionId>&workspace=<path>` |
+| `/api/projects` | `GET` | List all discovered Cursor projects |
+| `/api/git` | `GET` | Git status, diffs, and branches. `?workspace=<path>&detail=status\|diff\|branches` |
+| `/api/git` | `POST` | Git actions. Body: `{ action, workspace?, message?, files?, branch? }` |
+| `/api/upload` | `POST` | Upload images (multipart/form-data) |
+| `/api/settings` | `GET` | Get current settings |
+| `/api/settings` | `PATCH` | Update settings. Body: `{ key, value }` |
 | `/api/info` | `GET` | Network info, auth URL, and workspace path |
-| `/api/push/vapid-key` | `GET` | VAPID public key for push notification subscription |
-| `/api/push/subscribe` | `POST` | Register a push subscription. Body: standard `PushSubscription` JSON |
-| `/api/push/subscribe` | `DELETE` | Remove a push subscription. Body: `{ endpoint }` |
 
 ### Environment variables
 

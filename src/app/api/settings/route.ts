@@ -3,19 +3,22 @@ import { serverError } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
-const ALLOWED_KEYS = new Set(["trust", "notifications", "sound"]);
+const BOOL_KEYS = new Set(["trust", "sound"]);
+const STRING_KEYS = new Set(["default_model"]);
 
 export async function GET() {
   try {
     const raw = await getAllConfig();
-    const settings: Record<string, boolean> = {
+    const settings: Record<string, boolean | string> = {
       trust: true,
-      notifications: true,
       sound: true,
+      default_model: "auto",
     };
     for (const [key, value] of Object.entries(raw)) {
-      if (ALLOWED_KEYS.has(key)) {
+      if (BOOL_KEYS.has(key)) {
         settings[key] = value === "1";
+      } else if (STRING_KEYS.has(key)) {
+        settings[key] = value;
       }
     }
     return Response.json({ settings });
@@ -27,11 +30,14 @@ export async function GET() {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const updates: Record<string, boolean> = {};
+    const updates: Record<string, boolean | string> = {};
 
     for (const [key, value] of Object.entries(body)) {
-      if (ALLOWED_KEYS.has(key) && typeof value === "boolean") {
+      if (BOOL_KEYS.has(key) && typeof value === "boolean") {
         await setConfig(key, value ? "1" : "0");
+        updates[key] = value;
+      } else if (STRING_KEYS.has(key) && typeof value === "string") {
+        await setConfig(key, value);
         updates[key] = value;
       }
     }

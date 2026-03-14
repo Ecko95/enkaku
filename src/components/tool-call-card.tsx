@@ -354,6 +354,97 @@ export function ToolCallCard({ toolCall, defaultExpanded }: ToolCallCardProps) {
   );
 }
 
+interface FileChange {
+  path: string;
+  shortPath: string;
+  writes: number;
+  edits: number;
+}
+
+function aggregateFileChanges(toolCalls: ToolCallInfo[]): FileChange[] {
+  const byPath = new Map<string, FileChange>();
+  for (const tc of toolCalls) {
+    if ((tc.type !== "write" && tc.type !== "edit") || !tc.path) continue;
+    let entry = byPath.get(tc.path);
+    if (!entry) {
+      entry = { path: tc.path, shortPath: shortenPath(tc.path), writes: 0, edits: 0 };
+      byPath.set(tc.path, entry);
+    }
+    if (tc.type === "write") entry.writes++;
+    else entry.edits++;
+  }
+  return Array.from(byPath.values()).sort((a, b) => (b.writes + b.edits) - (a.writes + a.edits));
+}
+
+export function ChangesSummary({ toolCalls }: { toolCalls: ToolCallInfo[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const changes = aggregateFileChanges(toolCalls);
+  if (changes.length === 0) return null;
+
+  const totalEdits = changes.reduce((s, c) => s + c.edits, 0);
+  const totalWrites = changes.reduce((s, c) => s + c.writes, 0);
+  const parts: string[] = [];
+  if (totalEdits > 0) parts.push(`${totalEdits} edit${totalEdits > 1 ? "s" : ""}`);
+  if (totalWrites > 0) parts.push(`${totalWrites} write${totalWrites > 1 ? "s" : ""}`);
+
+  return (
+    <div className="py-2">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        aria-label={`Changes summary: ${changes.length} files`}
+        className="flex items-center gap-2 text-[12px] text-text-muted hover:text-text-secondary transition-colors w-full text-left"
+      >
+        <svg
+          className="w-3.5 h-3.5 shrink-0"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="12" y1="18" x2="12" y2="12" />
+          <line x1="9" y1="15" x2="15" y2="15" />
+        </svg>
+        <span className="font-medium text-text-secondary">
+          {changes.length} file{changes.length > 1 ? "s" : ""} changed
+        </span>
+        <span className="text-text-muted text-[11px]">{parts.join(", ")}</span>
+        <ChevronDown className={`shrink-0 transition-transform ml-auto ${expanded ? "rotate-180" : ""}`} />
+      </button>
+      {expanded && (
+        <ul className="mt-1.5 ml-5 pl-3 border-l-2 border-border space-y-0.5 py-1">
+          {changes.map((c) => (
+            <li key={c.path} className="flex items-center gap-2 text-[11px] font-mono">
+              <svg
+                className="w-3 h-3 shrink-0 text-text-muted"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+              <span className="text-text-secondary truncate flex-1" title={c.path}>{c.shortPath}</span>
+              <span className="text-text-muted shrink-0">
+                {c.edits > 0 && c.writes > 0
+                  ? `${c.edits}e ${c.writes}w`
+                  : c.edits > 0
+                    ? `${c.edits} edit${c.edits > 1 ? "s" : ""}`
+                    : `${c.writes} write${c.writes > 1 ? "s" : ""}`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function TodoLogCard({ toolCall }: { toolCall: ToolCallInfo }) {
   const [open, setOpen] = useState(true);
   const todos = toolCall.todos;

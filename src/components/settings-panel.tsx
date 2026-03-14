@@ -1,25 +1,22 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import type { ModelInfo } from "@/lib/types";
 import { apiFetch } from "@/lib/api-fetch";
-import { CloseIcon } from "./icons";
+import { CloseIcon, ChevronDown } from "./icons";
 
 interface Settings {
   trust: boolean;
-  notifications: boolean;
   sound: boolean;
+  default_model: string;
 }
 
-const DEFAULTS: Settings = { trust: true, notifications: true, sound: true };
+const DEFAULTS: Settings = { trust: true, sound: true, default_model: "auto" };
 
-const LABELS: Record<keyof Settings, { label: string; description: string }> = {
+const TOGGLE_LABELS: Record<"trust" | "sound", { label: string; description: string }> = {
   trust: {
     label: "Workspace trust",
     description: "Allow the agent to execute code and edit files without asking",
-  },
-  notifications: {
-    label: "Notifications",
-    description: "Show browser notifications when the agent finishes",
   },
   sound: {
     label: "Sound effects",
@@ -27,23 +24,32 @@ const LABELS: Record<keyof Settings, { label: string; description: string }> = {
   },
 };
 
+const TOGGLE_KEYS = Object.keys(TOGGLE_LABELS) as (keyof typeof TOGGLE_LABELS)[];
+
 interface SettingsPanelProps {
   open: boolean;
   onClose: () => void;
+  onDefaultModelChange?: (model: string) => void;
 }
 
-export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
+export function SettingsPanel({ open, onClose, onDefaultModelChange }: SettingsPanelProps) {
   const [settings, setSettings] = useState<Settings>(DEFAULTS);
   const [loading, setLoading] = useState(true);
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setLoading(true); // eslint-disable-line react-hooks/set-state-in-effect -- loading state for fetch
-    apiFetch("/api/settings")
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled) setSettings({ ...DEFAULTS, ...data.settings });
+    Promise.all([
+      apiFetch("/api/settings").then((r) => r.json()),
+      apiFetch("/api/models").then((r) => r.json()),
+    ])
+      .then(([settingsData, modelsData]) => {
+        if (cancelled) return;
+        setSettings({ ...DEFAULTS, ...settingsData.settings });
+        if (modelsData.models?.length > 0) setModels(modelsData.models);
       })
       .catch(() => {})
       .finally(() => {
@@ -52,7 +58,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     return () => { cancelled = true; };
   }, [open]);
 
-  const toggle = useCallback((key: keyof Settings) => {
+  const toggle = useCallback((key: keyof typeof TOGGLE_LABELS) => {
     setSettings((prev) => {
       const next = { ...prev, [key]: !prev[key] };
       apiFetch("/api/settings", {
@@ -65,6 +71,24 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
       return next;
     });
   }, []);
+
+  const handleModelSelect = useCallback((modelId: string) => {
+    setSettings((prev) => {
+      const next = { ...prev, default_model: modelId };
+      apiFetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ default_model: modelId }),
+      }).catch(() => {
+        setSettings(prev);
+      });
+      return next;
+    });
+    onDefaultModelChange?.(modelId);
+    setModelDropdownOpen(false);
+  }, [onDefaultModelChange]);
+
+  const currentModelLabel = models.find((m) => m.id === settings.default_model)?.label || settings.default_model;
 
   return (
     <>
@@ -94,29 +118,69 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               <span className="inline-block w-3 h-3 rounded-full border-2 border-text-muted border-t-transparent animate-spin" />
             </div>
           ) : (
-            (Object.keys(LABELS) as (keyof Settings)[]).map((key) => (
-              <button
-                key={key}
-                onClick={() => toggle(key)}
-                className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-md hover:bg-bg-hover transition-colors text-left"
-              >
-                <div className="min-w-0">
-                  <p className="text-[12px] text-text">{LABELS[key].label}</p>
-                  <p className="text-[11px] text-text-muted mt-0.5 leading-tight">{LABELS[key].description}</p>
-                </div>
-                <div
-                  className={`shrink-0 w-8 h-[18px] rounded-full transition-colors relative ${
-                    settings[key] ? "bg-success" : "bg-bg-active"
-                  }`}
+            <>
+              {TOGGLE_KEYS.map((key) => (
+                <button
+                  key={key}
+                  onClick={() => toggle(key)}
+                  className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-md hover:bg-bg-hover transition-colors text-left"
                 >
+                  <div className="min-w-0">
+                    <p className="text-[12px] text-text">{TOGGLE_LABELS[key].label}</p>
+                    <p className="text-[11px] text-text-muted mt-0.5 leading-tight">{TOGGLE_LABELS[key].description}</p>
+                  </div>
                   <div
-                    className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-transform ${
-                      settings[key] ? "translate-x-[16px]" : "translate-x-[2px]"
+                    className={`shrink-0 w-8 h-[18px] rounded-full transition-colors relative ${
+                      settings[key] ? "bg-success" : "bg-bg-active"
                     }`}
-                  />
+                  >
+                    <div
+                      className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-transform ${
+                        settings[key] ? "translate-x-[16px]" : "translate-x-[2px]"
+                      }`}
+                    />
+                  </div>
+                </button>
+              ))}
+
+              <div className="pt-3 mt-2 border-t border-border">
+                <div className="px-3 py-2">
+                  <p className="text-[12px] text-text">Default model</p>
+                  <p className="text-[11px] text-text-muted mt-0.5 leading-tight">
+                    Model used for new sessions
+                  </p>
                 </div>
-              </button>
-            ))
+                <div className="relative px-3">
+                  <button
+                    onClick={() => setModelDropdownOpen((v) => !v)}
+                    className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-bg-surface border border-border text-[12px] text-text hover:bg-bg-hover transition-colors"
+                  >
+                    <span className="truncate">{currentModelLabel}</span>
+                    <ChevronDown />
+                  </button>
+                  {modelDropdownOpen && models.length > 0 && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setModelDropdownOpen(false)} />
+                      <div className="absolute left-3 right-3 top-full mt-1 z-50 bg-bg-elevated border border-border rounded-lg shadow-xl py-1 max-h-60 overflow-y-auto">
+                        {models.map((m) => (
+                          <button
+                            key={m.id}
+                            onClick={() => handleModelSelect(m.id)}
+                            className={`w-full text-left px-3 py-1.5 text-[12px] transition-colors ${
+                              settings.default_model === m.id
+                                ? "text-text bg-bg-active"
+                                : "text-text-secondary hover:bg-bg-hover hover:text-text"
+                            }`}
+                          >
+                            {m.label}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </>
           )}
         </div>
       </div>

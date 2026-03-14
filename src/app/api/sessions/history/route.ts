@@ -15,7 +15,7 @@ export async function GET(req: Request) {
   if (!result.success) return badRequest("invalid or missing session id");
   const sessionId = result.data;
 
-  const workspace = getWorkspace();
+  const workspace = url.searchParams.get("workspace") || getWorkspace();
 
   if (checkOnly) {
     const modifiedAt = await getSessionModifiedAt(workspace, sessionId);

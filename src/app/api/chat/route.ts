@@ -77,7 +77,7 @@ export async function POST(req: Request) {
   if ("error" in parsed) return badRequest(parsed.error);
   const body = parsed.data;
 
-  const workspace = getWorkspace();
+  const workspace = body.workspace || getWorkspace();
 
   try {
     const requestId = randomUUID();

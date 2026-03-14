@@ -45,17 +45,15 @@ export async function getDb(): Promise<Database> {
       updated_at INTEGER NOT NULL
     )
   `);
+  try {
+    db.run("ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
+  } catch {
+    // column already exists
+  }
   db.run(`
     CREATE TABLE IF NOT EXISTS config (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
-    )
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS push_subscriptions (
-      endpoint TEXT PRIMARY KEY,
-      subscription TEXT NOT NULL,
-      created_at INTEGER NOT NULL
     )
   `);
 
@@ -127,12 +125,35 @@ export async function upsertSession(
   return { id: sessionId, title, workspace, preview, createdAt: now, updatedAt: now };
 }
 
-export async function listSessions(workspace?: string): Promise<StoredSession[]> {
+export async function listSessions(workspace?: string, includeArchived = false): Promise<StoredSession[]> {
   const conn = await getDb();
+  const archivedFilter = includeArchived ? " archived = 1" : " archived = 0";
   const rows = workspace
-    ? queryAll(conn, "SELECT * FROM sessions WHERE workspace = ? ORDER BY updated_at DESC", [workspace])
-    : queryAll(conn, "SELECT * FROM sessions ORDER BY updated_at DESC");
+    ? queryAll(conn, "SELECT * FROM sessions WHERE workspace = ? AND" + archivedFilter + " ORDER BY updated_at DESC", [workspace])
+    : queryAll(conn, "SELECT * FROM sessions WHERE" + archivedFilter + " ORDER BY updated_at DESC");
   return rows.map(rowToSession);
+}
+
+export async function archiveSession(sessionId: string): Promise<void> {
+  const conn = await getDb();
+  conn.run("UPDATE sessions SET archived = 1 WHERE id = ?", [sessionId]);
+  save();
+}
+
+export async function unarchiveSession(sessionId: string): Promise<void> {
+  const conn = await getDb();
+  conn.run("UPDATE sessions SET archived = 0 WHERE id = ?", [sessionId]);
+  save();
+}
+
+export async function archiveAllSessions(workspace?: string): Promise<void> {
+  const conn = await getDb();
+  if (workspace) {
+    conn.run("UPDATE sessions SET archived = 1 WHERE workspace = ? AND archived = 0", [workspace]);
+  } else {
+    conn.run("UPDATE sessions SET archived = 1 WHERE archived = 0");
+  }
+  save();
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
@@ -151,6 +172,12 @@ export async function setConfig(key: string, value: string): Promise<void> {
   const conn = await getDb();
   conn.run("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", [key, value]);
   save();
+}
+
+export async function listWorkspaces(): Promise<string[]> {
+  const conn = await getDb();
+  const rows = queryAll(conn, "SELECT DISTINCT workspace FROM sessions ORDER BY workspace");
+  return rows.map((r) => r.workspace as string);
 }
 
 export async function getAllConfig(): Promise<Record<string, string>> {

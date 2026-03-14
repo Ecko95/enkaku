@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import type { ChatMessage, ToolCallInfo, StoredSession, QueuedMessage } from "@/lib/types";
 import { timeAgo } from "@/lib/format";
 import { MessageBubble } from "./message-bubble";
-import { ToolCallCard, ToolCallGroup, TodoLogCard, isMinorToolCall } from "./tool-call-card";
+import { ToolCallCard, ToolCallGroup, TodoLogCard, ChangesSummary, isMinorToolCall } from "./tool-call-card";
 import { Spinner, RetryIcon, ClockIcon, ArrowDown } from "./icons";
 
 interface MessageListProps {
@@ -14,7 +14,7 @@ interface MessageListProps {
   isLoadingHistory?: boolean;
   isWatching?: boolean;
   recentSessions?: StoredSession[];
-  onSelectSession?: (id: string) => void;
+  onSelectSession?: (id: string, workspace?: string) => void;
   onRetry?: () => void;
   queuedMessages?: QueuedMessage[];
   onForceSend?: (id: string) => void;
@@ -35,7 +35,7 @@ function RecentSessions({
   onSelect,
 }: {
   sessions: StoredSession[];
-  onSelect: (id: string) => void;
+  onSelect: (id: string, workspace?: string) => void;
 }) {
   if (sessions.length === 0) return null;
 
@@ -48,7 +48,7 @@ function RecentSessions({
         {sessions.map((s) => (
           <button
             key={s.id}
-            onClick={() => onSelect(s.id)}
+            onClick={() => onSelect(s.id, s.workspace)}
             className="w-full text-left px-3 py-2 rounded-lg bg-bg-surface hover:bg-bg-hover border border-border/50 transition-colors group"
           >
             <p className="text-[12px] text-text-secondary group-hover:text-text truncate">
@@ -324,6 +324,10 @@ export function MessageList({
               return null;
             })}
           </div>
+
+          {!isStreaming && timeline.length > 0 && toolCalls.length > 0 && (
+            <ChangesSummary toolCalls={toolCalls} />
+          )}
 
           {showThinking && (
             <div className="py-3 flex items-center gap-2 text-text-muted text-[12px]">

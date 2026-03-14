@@ -48,10 +48,11 @@ export function useSessionWatch(options: UseSessionWatchOptions = {}) {
   }, []);
 
   const startWatching = useCallback(
-    (id: string) => {
+    (id: string, workspace?: string) => {
       stopWatching();
 
-      const url = `/api/sessions/watch?id=${encodeURIComponent(id)}`;
+      let url = `/api/sessions/watch?id=${encodeURIComponent(id)}`;
+      if (workspace) url += `&workspace=${encodeURIComponent(workspace)}`;
       const es = new EventSource(url);
       eventSourceRef.current = es;
 
@@ -96,9 +97,11 @@ export function useSessionWatch(options: UseSessionWatchOptions = {}) {
     [stopWatching, applyUpdate],
   );
 
-  const refreshFromHistory = useCallback(async (sessionId: string) => {
+  const refreshFromHistory = useCallback(async (sessionId: string, workspace?: string) => {
     try {
-      const res = await apiFetch(`/api/sessions/history?id=${encodeURIComponent(sessionId)}`);
+      let url = `/api/sessions/history?id=${encodeURIComponent(sessionId)}`;
+      if (workspace) url += `&workspace=${encodeURIComponent(workspace)}`;
+      const res = await apiFetch(url);
       if (!res.ok) return;
       const data = await res.json();
       if (data.messages?.length > 0) setMessages(data.messages);

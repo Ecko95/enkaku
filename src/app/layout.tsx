@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { PwaInstall } from "@/components/pwa-install";
-import { SwRegister } from "@/components/sw-register";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,7 +25,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className="overscroll-none">
         {children}
-        <SwRegister />
         <PwaInstall />
       </body>
     </html>

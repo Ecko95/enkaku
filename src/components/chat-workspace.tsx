@@ -3,6 +3,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useHaptics } from "@/hooks/use-haptics";
 import { fetchActiveSessions } from "@/hooks/use-chat";
+import { apiFetch } from "@/lib/api-fetch";
 import { ChatContainer } from "./chat-container";
 import { SessionSidebar } from "./session-sidebar";
 import { SettingsPanel } from "./settings-panel";
@@ -16,15 +17,17 @@ interface ChatInstance {
   label: string;
   isStreaming: boolean;
   initialSessionId?: string;
+  initialWorkspace?: string;
 }
 
-function makeInstance(initialSessionId?: string): ChatInstance {
+function makeInstance(initialSessionId?: string, initialWorkspace?: string): ChatInstance {
   return {
     id: uuid(),
     sessionId: null,
     label: initialSessionId ? "Loading..." : "New chat",
     isStreaming: false,
     initialSessionId,
+    initialWorkspace,
   };
 }
 
@@ -34,8 +37,21 @@ export function ChatWorkspace() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
+  const [defaultModel, setDefaultModel] = useState<string>("auto");
   const haptics = useHaptics();
   const restoredRef = useRef(false);
+  const settingsLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (settingsLoadedRef.current) return;
+    settingsLoadedRef.current = true;
+    apiFetch("/api/settings")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.settings?.default_model) setDefaultModel(data.settings.default_model);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (restoredRef.current) return;
@@ -94,14 +110,14 @@ export function ChatWorkspace() {
   }, [haptics, instances, activeId]);
 
   const handleSelectSession = useCallback(
-    (sessionId: string) => {
+    (sessionId: string, workspace?: string) => {
       const existing = instances.find((i) => i.sessionId === sessionId);
       if (existing) {
         setActiveId(existing.id);
         return;
       }
 
-      const inst = makeInstance(sessionId);
+      const inst = makeInstance(sessionId, workspace);
       const current = instances.find((i) => i.id === activeId);
 
       if (current && !current.sessionId && !current.isStreaming) {
@@ -147,6 +163,8 @@ export function ChatWorkspace() {
           <ErrorBoundary fallback="inline">
             <ChatContainer
               initialSessionId={inst.initialSessionId}
+              initialWorkspace={inst.initialWorkspace}
+              defaultModel={defaultModel}
               onLabelChange={(label) => updateLabel(inst.id, label)}
               onStreamingChange={(s) => updateStreaming(inst.id, s)}
               onSessionIdChange={(sid) => updateSessionId(inst.id, sid)}
@@ -168,7 +186,7 @@ export function ChatWorkspace() {
         activeStatuses={activeStatuses}
       />
 
-      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} onDefaultModelChange={setDefaultModel} />
 
       <QrModal open={qrOpen} onClose={() => setQrOpen(false)} />
     </div>

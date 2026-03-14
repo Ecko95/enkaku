@@ -43,6 +43,7 @@ export interface ChatRequest {
   sessionId?: string;
   model?: string;
   mode?: AgentMode;
+  workspace?: string;
 }
 
 export interface NetworkInfo {
@@ -66,4 +67,10 @@ export interface ModelInfo {
   label: string;
   isDefault: boolean;
   isCurrent: boolean;
+}
+
+export interface ProjectInfo {
+  name: string;
+  path: string;
+  key: string;
 }

@@ -1,13 +1,52 @@
 import { readdir, stat, readFile, access } from "fs/promises";
-import { join, resolve } from "path";
+import { join, resolve, sep } from "path";
 import { homedir } from "os";
-import type { StoredSession, ChatMessage, ToolCallInfo, TodoItem } from "@/lib/types";
+import { existsSync, statSync } from "fs";
+import type { StoredSession, ChatMessage, ToolCallInfo, TodoItem, ProjectInfo } from "@/lib/types";
 
 const CURSOR_PROJECTS_DIR = join(homedir(), ".cursor", "projects");
 
 export function workspaceToProjectKey(workspace: string): string {
   const abs = resolve(workspace);
   return abs.replace(/^\//, "").replace(/\//g, "-");
+}
+
+function projectKeyToWorkspace(key: string): string | null {
+  const parts = key.split("-");
+  let path = sep + parts[0];
+  for (let i = 1; i < parts.length; i++) {
+    const withSlash = path + sep + parts[i];
+    if (existsSync(withSlash) && statSync(withSlash).isDirectory()) {
+      path = withSlash;
+    } else {
+      path = path + "-" + parts[i];
+    }
+  }
+  if (!existsSync(path)) return null;
+  return path;
+}
+
+export async function listProjects(): Promise<ProjectInfo[]> {
+  const projects: ProjectInfo[] = [];
+  try {
+    const entries = await readdir(CURSOR_PROJECTS_DIR);
+    for (const entry of entries) {
+      if (!/^[A-Z]/.test(entry)) continue;
+      const transcriptsDir = join(CURSOR_PROJECTS_DIR, entry, "agent-transcripts");
+      try {
+        await access(transcriptsDir);
+      } catch {
+        continue;
+      }
+      const workspace = projectKeyToWorkspace(entry);
+      if (!workspace) continue;
+      const name = workspace.split(sep).pop() || workspace;
+      projects.push({ name, path: workspace, key: entry });
+    }
+  } catch {
+    // projects dir doesn't exist or can't be read
+  }
+  return projects.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 async function findTranscriptsDir(workspace: string): Promise<string | null> {

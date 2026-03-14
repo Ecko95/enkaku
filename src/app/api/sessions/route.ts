@@ -1,8 +1,8 @@
-import { listSessions, deleteSession } from "@/lib/session-store";
+import { listSessions, deleteSession, archiveSession, unarchiveSession, archiveAllSessions } from "@/lib/session-store";
 import { readCursorSessions } from "@/lib/transcript-reader";
 import { getWorkspace } from "@/lib/workspace";
 import { deleteSessionSchema, parseBody } from "@/lib/validation";
-import { badRequest, parseJsonBody } from "@/lib/errors";
+import { badRequest, parseJsonBody, serverError } from "@/lib/errors";
 import type { StoredSession } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -31,15 +31,17 @@ function mergeSessions(ours: StoredSession[], cursor: StoredSession[]): StoredSe
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const all = url.searchParams.get("all") === "true";
-  const workspace = getWorkspace();
+  const workspaceParam = url.searchParams.get("workspace");
+  const archived = url.searchParams.get("archived") === "true";
+  const workspace = workspaceParam || getWorkspace();
 
   if (all) {
-    const ours = await listSessions();
+    const ours = await listSessions(undefined, archived);
     return Response.json({ sessions: ours, workspace });
   }
 
   const cursorSessions = await readCursorSessions(workspace);
-  const ourSessions = await listSessions(workspace);
+  const ourSessions = await listSessions(workspace, archived);
   const merged = mergeSessions(ourSessions, cursorSessions);
 
   return Response.json({ sessions: merged, workspace });
@@ -54,4 +56,31 @@ export async function DELETE(req: Request) {
 
   await deleteSession(parsed.data.sessionId);
   return Response.json({ ok: true });
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const body = await req.json() as { action: string; sessionId?: string; workspace?: string };
+    const { action, sessionId, workspace } = body;
+
+    switch (action) {
+      case "archive":
+        if (!sessionId) return badRequest("sessionId required");
+        await archiveSession(sessionId);
+        break;
+      case "unarchive":
+        if (!sessionId) return badRequest("sessionId required");
+        await unarchiveSession(sessionId);
+        break;
+      case "archive_all":
+        await archiveAllSessions(workspace);
+        break;
+      default:
+        return badRequest("Invalid action");
+    }
+
+    return Response.json({ ok: true });
+  } catch {
+    return serverError("Failed to update session");
+  }
 }

@@ -13,6 +13,7 @@ export const chatRequestSchema = z.object({
     .regex(/^[a-zA-Z0-9._/-]+$/, "invalid model")
     .optional(),
   mode: z.enum(["agent", "ask", "plan"]).optional(),
+  workspace: z.string().max(512).optional(),
 });
 
 export const deleteSessionSchema = z.object({
