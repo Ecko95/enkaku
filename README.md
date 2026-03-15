@@ -48,6 +48,7 @@ I'm actively using this myself on a daily basis, so bugs get noticed and fixed q
 - **Live streaming** — watch responses, tool calls, and file edits in real time
 - **Multi-project** — switch between all your Cursor projects, star favorites, browse sessions across workspaces
 - **Git panel** — view diffs, commit, push, pull, switch branches — all from the UI
+- **Terminal access** — Access terminal from phone/browser 
 - **Session management** — browse, resume, archive, and export past sessions
 - **PWA ready** — install as an app on your phone's home screen
 - **Notifications** — tab title flash + sound when agent finishes, optional webhook for push-to-phone (e.g. Discord)
