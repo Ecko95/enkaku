@@ -21,14 +21,14 @@
 
 ## Tasks
 
-- [ ] **T01: Create WSL detection and IP resolution module** `est:30m`
+- [x] **T01: Create WSL detection and IP resolution module** `est:30m`
   - Why: Central module that all WSL-aware code will import — must exist before wiring
   - Files: `src/lib/wsl.ts`
   - Do: Implement `isWSL()` (read `/proc/version`, check for "microsoft" case-insensitive, cache result), `getWindowsLanIp()` (call `powershell.exe` to get active non-virtual adapter IPv4, filter out Hyper-V/vEthernet/loopback, return first match), `getWSLInternalIp()` (return WSL's own `eth0` IPv4 from `os.networkInterfaces()`). All functions must handle errors gracefully — return `null` on failure, never throw.
   - Verify: `npx tsx -e "import { isWSL, getWindowsLanIp, getWSLInternalIp } from './src/lib/wsl.ts'; console.log({ isWSL: isWSL(), lanIp: await getWindowsLanIp(), wslIp: getWSLInternalIp() })"` runs without error
   - Done when: Module exports all three functions with real implementations
 
-- [ ] **T02: Wire WSL-aware IP into CLI and network module** `est:30m`
+- [x] **T02: Wire WSL-aware IP into CLI and network module** `est:30m`
   - Why: The QR code and `/api/info` endpoint must show the correct IP — this is the user-visible outcome
   - Files: `bin/cursor-remote.mjs`, `src/lib/network.ts`
   - Do: In `bin/cursor-remote.mjs`: import wsl module, if `isWSL()` then call `getWindowsLanIp()` and use that instead of the native `getLanIp()`. In `src/lib/network.ts`: import wsl module, if `isWSL()` return Windows LAN IP from `getLanIp()`. Both must fall back to native behavior if WSL functions return null. Keep the bin file as ESM `.mjs` — import the wsl module dynamically or via the built path.

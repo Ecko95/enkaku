@@ -1,16 +1,91 @@
 #!/usr/bin/env node
 
-import { spawn, execFileSync } from "child_process";
+import { spawn, execFile, execFileSync } from "child_process";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { networkInterfaces } from "os";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { randomInt } from "crypto";
 import { createServer } from "net";
 import qrcode from "qrcode-terminal";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, "..");
+
+// --- WSL Detection & IP Resolution (inline JS, mirrors src/lib/wsl.ts) ---
+
+let _isWSL = null;
+
+function isWSL() {
+  if (_isWSL !== null) return _isWSL;
+  try {
+    const version = readFileSync("/proc/version", "utf-8");
+    _isWSL = /microsoft/i.test(version);
+  } catch {
+    _isWSL = false;
+  }
+  return _isWSL;
+}
+
+function execCommand(cmd, args) {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { timeout: 10000 }, (error, stdout) => {
+      if (error) { resolve(null); return; }
+      const result = stdout.toString().trim();
+      resolve(result || null);
+    });
+  });
+}
+
+function isValidIPv4(ip) {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return false;
+  return parts.every((p) => {
+    const n = parseInt(p, 10);
+    return !isNaN(n) && n >= 0 && n <= 255 && String(n) === p;
+  });
+}
+
+async function getWindowsLanIp() {
+  try {
+    const psScript = `Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' } | ForEach-Object { Get-NetIPAddress -InterfaceIndex $_.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -ne '127.0.0.1' } } | Select-Object -First 1 -ExpandProperty IPAddress`;
+    const ip = await execCommand("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", psScript]);
+    if (ip && isValidIPv4(ip)) return ip;
+
+    // Fallback: ipconfig.exe
+    const output = await execCommand("ipconfig.exe", []);
+    if (!output) return null;
+    const lines = output.split("\n");
+    let inVirtual = false;
+    for (const line of lines) {
+      if (/vEthernet|Hyper-V|WSL/i.test(line)) { inVirtual = true; continue; }
+      if (line.match(/^\S/) && !line.startsWith(" ")) inVirtual = false;
+      if (inVirtual) continue;
+      const match = line.match(/IPv4 Address[.\s]*:\s*([\d.]+)/);
+      if (match && match[1] !== "127.0.0.1" && isValidIPv4(match[1])) return match[1];
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function getWSLInternalIp() {
+  try {
+    const ifaces = networkInterfaces();
+    const eth0 = ifaces["eth0"];
+    if (eth0) {
+      for (const addr of eth0) {
+        if (addr.family === "IPv4" && !addr.internal) return addr.address;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// --- End WSL ---
 
 const WORDS = [
   "alpha","amber","anvil","apple","arrow","atlas","azure","badge","baker","beach",
@@ -133,7 +208,13 @@ async function findAvailablePort(startPort) {
   return null;
 }
 
-function getLanIp() {
+async function getLanIp() {
+  // In WSL2, resolve the Windows host's LAN IP
+  if (isWSL()) {
+    const windowsIp = await getWindowsLanIp();
+    if (windowsIp) return windowsIp;
+  }
+
   const interfaces = networkInterfaces();
   for (const name of Object.keys(interfaces)) {
     const addrs = interfaces[name];
@@ -155,7 +236,7 @@ if (availablePort !== portNum) {
 }
 const port = String(availablePort);
 
-const lanIp = getLanIp();
+const lanIp = await getLanIp();
 const localUrl = `http://localhost:${port}`;
 const networkUrl = lanIp ? `http://${lanIp}:${port}` : null;
 
@@ -171,6 +252,9 @@ console.log("██║     ██║     ██╔══██╗");
 console.log("╚██████╗███████╗██║  ██║");
 console.log(" ╚═════╝╚══════╝╚═╝  ╚═╝\x1b[0m");
 console.log(`  \x1b[2mWorkspace:\x1b[0m   ${workspace}`);
+if (isWSL()) {
+  console.log(`  \x1b[2mWSL2:\x1b[0m        \x1b[33mdetected\x1b[0m — using Windows LAN IP`);
+}
 console.log(`  \x1b[2mLocal:\x1b[0m       ${localUrl}`);
 if (networkUrl) {
   console.log(`  \x1b[2mNetwork:\x1b[0m     \x1b[97m${networkUrl}\x1b[0m`);

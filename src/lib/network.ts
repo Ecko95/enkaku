@@ -1,6 +1,14 @@
 import { networkInterfaces } from "os";
+import { isWSL, getWindowsLanIp } from "./wsl";
 
-export function getLanIp(): string | null {
+export async function getLanIp(): Promise<string | null> {
+  // In WSL2, resolve the Windows host's LAN IP instead of the WSL internal IP
+  if (isWSL()) {
+    const windowsIp = await getWindowsLanIp();
+    if (windowsIp) return windowsIp;
+    // Fall through to native resolution if Windows IP unavailable
+  }
+
   const interfaces = networkInterfaces();
 
   for (const name of Object.keys(interfaces)) {
@@ -17,8 +25,8 @@ export function getLanIp(): string | null {
   return null;
 }
 
-export function getNetworkInfo(port: number = 3100) {
-  const lanIp = getLanIp();
+export async function getNetworkInfo(port: number = 3100) {
+  const lanIp = await getLanIp();
   return {
     lanIp: lanIp || "localhost",
     port,

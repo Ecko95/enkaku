@@ -48,7 +48,7 @@ This milestone is complete only when all are true:
 
 ## Slices
 
-- [ ] **S01: WSL detection and LAN IP resolution** `risk:medium` `depends:[]`
+- [x] **S01: WSL detection and LAN IP resolution** `risk:medium` `depends:[]`
   > After this: `clr` inside WSL2 shows the Windows LAN IP in terminal output and QR code; native platforms unchanged
 
 - [ ] **S02: Automatic port forwarding and cleanup** `risk:high` `depends:[S01]`
