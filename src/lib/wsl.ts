@@ -273,3 +273,37 @@ export async function removeFirewallRule(port: number): Promise<NetshResult> {
     };
   }
 }
+
+// --- Stale Rule Detection ---
+
+/**
+ * Check if a portproxy rule already exists for the given port.
+ * Used to detect and clean up stale rules from previous crashed sessions.
+ */
+export async function checkStaleRules(port: number): Promise<boolean> {
+  try {
+    const output = await execCommand("netsh.exe", [
+      "interface",
+      "portproxy",
+      "show",
+      "v4tov4",
+    ]);
+    if (!output) return false;
+
+    // Parse output lines for our port
+    const portStr = String(port);
+    const lines = output.split("\n");
+    for (const line of lines) {
+      // netsh output has columns: Listen Address, Listen Port, Connect Address, Connect Port
+      if (line.includes(portStr)) {
+        const parts = line.trim().split(/\s+/);
+        // Check if any column matches our port
+        if (parts.includes(portStr)) return true;
+      }
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}

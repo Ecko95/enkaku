@@ -18,7 +18,7 @@
 
 ## Tasks
 
-- [ ] **T01: Stale rule cleanup and privilege error messaging** `est:30m`
+- [x] **T01: Stale rule cleanup and privilege error messaging** `est:30m`
   - Why: Covers the two main failure modes — stale rules from crashes and missing admin privileges
   - Files: `src/lib/wsl.ts`, `bin/cursor-remote.mjs`
   - Do: Add `checkStaleRules(port)` to wsl module — queries existing portproxy rules, returns boolean if a rule for the port exists. On startup (before setting up new rules), check and remove stale rules. When `setupPortForward` or `addFirewallRule` fails, detect if it's a permission error (stderr contains "Access is denied" or "requires elevation"). If so, print a boxed message with the exact netsh commands the user can run in an elevated PowerShell. Update `--help` to document `--no-forward`. Ensure `--no-forward` skips all port forwarding logic cleanly.

@@ -54,7 +54,7 @@ This milestone is complete only when all are true:
 - [x] **S02: Automatic port forwarding and cleanup** `risk:high` `depends:[S01]`
   > After this: phone on same Wi-Fi can reach the server running inside WSL2 via the QR code URL
 
-- [ ] **S03: Resilience and fallback UX** `risk:low` `depends:[S02]`
+- [x] **S03: Resilience and fallback UX** `risk:low` `depends:[S02]`
   > After this: clear terminal guidance when admin privileges are unavailable; stale rules cleaned on startup
 
 ## Boundary Map

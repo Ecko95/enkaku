@@ -131,6 +131,22 @@ async function removeFirewallRule(portNum) {
 
 // --- End WSL Port Forwarding ---
 
+async function checkStaleRules(portNum) {
+  try {
+    const output = await execCommand("netsh.exe", ["interface", "portproxy", "show", "v4tov4"]);
+    if (!output) return false;
+    const portStr = String(portNum);
+    const lines = output.split("\n");
+    for (const line of lines) {
+      if (line.includes(portStr)) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.includes(portStr)) return true;
+      }
+    }
+    return false;
+  } catch { return false; }
+}
+
 const WORDS = [
   "alpha","amber","anvil","apple","arrow","atlas","azure","badge","baker","beach",
   "berry","blade","blaze","bloom","board","bonus","brave","brick","brook","brush",
@@ -296,6 +312,15 @@ if (isWSL() && !noForward) {
   const wslIp = getWSLInternalIp();
   if (wslIp && lanIp) {
     wslForwardLanIp = lanIp;
+
+    // Clean stale rules from previous crashed sessions
+    const hasStale = await checkStaleRules(parseInt(port));
+    if (hasStale) {
+      await removePortForward(parseInt(port), lanIp);
+      await removeFirewallRule(parseInt(port));
+      console.log(`  \x1b[2m🧹 Cleaned stale port forward rule for port ${port}\x1b[0m`);
+    }
+
     console.log(`  \x1b[2m⚡ Setting up port forwarding...\x1b[0m`);
     const fwdResult = await setupPortForward(parseInt(port), wslIp, lanIp);
     if (fwdResult.success) {

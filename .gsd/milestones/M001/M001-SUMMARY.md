@@ -3,14 +3,18 @@
 ## Completed Slices
 
 ### S01: WSL Detection and LAN IP Resolution
-WSL2 auto-detected via /proc/version, Windows LAN IP resolved via powershell.exe (with ipconfig.exe fallback), both IP resolution sites updated (bin/cursor-remote.mjs and src/lib/network.ts). QR code and terminal output show correct Windows LAN IP. Native platform behavior unchanged.
-
-Key files: `src/lib/wsl.ts`, `bin/cursor-remote.mjs`, `src/lib/network.ts`, `src/app/api/info/route.ts`
+WSL2 auto-detected via /proc/version, Windows LAN IP resolved via powershell.exe (with ipconfig.exe fallback), both IP resolution sites updated. QR code and terminal output show correct Windows LAN IP.
 
 ### S02: Automatic Port Forwarding and Cleanup
-netsh portproxy + firewall rule lifecycle integrated into CLI. Setup on start, cleanup on exit. `--no-forward` flag added. Privilege error fallback shows manual netsh commands. Dynamic import fix for wsl.ts in network.ts.
+netsh portproxy + firewall rule lifecycle: setup on start, cleanup on exit. `--no-forward` flag. Privilege error fallback with manual netsh commands. Dynamic import fix for wsl.ts.
 
-Key files: `src/lib/wsl.ts`, `bin/cursor-remote.mjs`, `src/lib/network.ts`
+### S03: Resilience and Fallback UX
+Stale portproxy rule detection and cleanup on startup.
 
-## Remaining
-- S03: Resilience and fallback UX
+## Key Files
+- `src/lib/wsl.ts` — WSL detection, IP resolution, port forwarding, stale rule detection
+- `bin/cursor-remote.mjs` — CLI entrypoint with all WSL logic inlined
+- `src/lib/network.ts` — WSL-aware getLanIp() via dynamic import
+- `src/app/api/info/route.ts` — async getNetworkInfo()
+
+## Milestone Status: Complete
