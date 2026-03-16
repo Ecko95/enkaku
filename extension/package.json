@@ -1,0 +1,145 @@
+{
+  "name": "enkaku-sync",
+  "displayName": "Enkaku — Remote Session Sync",
+  "description": "View and continue Enkaku remote agent sessions from Cursor/VS Code. See file changes, diffs, and conversation history from sessions started on any device.",
+  "version": "0.1.0",
+  "publisher": "ecko95",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "enkaku",
+          "title": "Enkaku",
+          "icon": "media/enkaku.svg"
+        }
+      ]
+    },
+    "views": {
+      "enkaku": [
+        {
+          "id": "enkaku.sessions",
+          "name": "Sessions"
+        },
+        {
+          "id": "enkaku.changes",
+          "name": "Changed Files"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "enkaku.refresh",
+        "title": "Refresh Sessions",
+        "icon": "$(refresh)",
+        "category": "Enkaku"
+      },
+      {
+        "command": "enkaku.openSession",
+        "title": "View Session Details",
+        "category": "Enkaku"
+      },
+      {
+        "command": "enkaku.openChangedFile",
+        "title": "Open Changed File",
+        "icon": "$(go-to-file)",
+        "category": "Enkaku"
+      },
+      {
+        "command": "enkaku.continueSession",
+        "title": "Continue This Session in Chat",
+        "icon": "$(comment-discussion)",
+        "category": "Enkaku"
+      },
+      {
+        "command": "enkaku.configure",
+        "title": "Configure Server Connection",
+        "category": "Enkaku"
+      },
+      {
+        "command": "enkaku.openInBrowser",
+        "title": "Open in Enkaku Web UI",
+        "icon": "$(link-external)",
+        "category": "Enkaku"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "enkaku.refresh",
+          "when": "view == enkaku.sessions",
+          "group": "navigation"
+        },
+        {
+          "command": "enkaku.configure",
+          "when": "view == enkaku.sessions"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "enkaku.openSession",
+          "when": "view == enkaku.sessions && viewItem == session",
+          "group": "inline"
+        },
+        {
+          "command": "enkaku.continueSession",
+          "when": "view == enkaku.sessions && viewItem == session"
+        },
+        {
+          "command": "enkaku.openInBrowser",
+          "when": "view == enkaku.sessions && viewItem == session"
+        },
+        {
+          "command": "enkaku.openChangedFile",
+          "when": "view == enkaku.changes && viewItem == changedFile",
+          "group": "inline"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Enkaku",
+      "properties": {
+        "enkaku.serverUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Enkaku server URL (e.g. http://192.168.1.50:3100). Leave empty for auto-discovery."
+        },
+        "enkaku.authToken": {
+          "type": "string",
+          "default": "",
+          "description": "Auth token for the Enkaku server."
+        },
+        "enkaku.pollIntervalSeconds": {
+          "type": "number",
+          "default": 10,
+          "minimum": 3,
+          "maximum": 120,
+          "description": "How often to poll for session updates (seconds)."
+        },
+        "enkaku.showRemoteOnly": {
+          "type": "boolean",
+          "default": false,
+          "description": "Only show sessions that were started remotely (not from this IDE)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  }
+}
