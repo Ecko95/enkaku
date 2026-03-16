@@ -1,12 +1,12 @@
 const isDev = process.env.NODE_ENV === "development";
 
 const csp = isDev
-  ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws:; worker-src 'self'"
-  : "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; worker-src 'self'";
+  ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws:"
+  : "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'";
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  serverExternalPackages: ["sql.js", "web-push"],
+  serverExternalPackages: ["sql.js"],
   async headers() {
     return [
       {

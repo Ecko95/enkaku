@@ -3,20 +3,25 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useChat } from "@/hooks/use-chat";
 import { useHaptics } from "@/hooks/use-haptics";
-import { useNotifications } from "@/hooks/use-notifications";
 import { useSound } from "@/hooks/use-sound";
+import { useNotification } from "@/hooks/use-notification";
 import { apiFetch } from "@/lib/api-fetch";
 import type { StoredSession } from "@/lib/types";
 import { MessageList } from "./message-list";
 import { ChatInput } from "./chat-input";
-import { MenuIcon, SettingsIcon } from "./icons";
+import { exportSessionMarkdown } from "@/lib/export";
+import { MenuIcon, SettingsIcon, ExportIcon, CheckIcon, GitBranchIcon, CloseIcon, TerminalIcon } from "./icons";
+import { GitPanel } from "./git-panel";
+import { TerminalPanel } from "./terminal-panel";
 
 interface ChatContainerProps {
   initialSessionId?: string;
+  initialWorkspace?: string;
+  defaultModel?: string;
   onLabelChange?: (label: string) => void;
   onStreamingChange?: (streaming: boolean) => void;
   onSessionIdChange?: (sessionId: string | null) => void;
-  onSelectSession?: (id: string) => void;
+  onSelectSession?: (id: string, workspace?: string) => void;
   onOpenSidebar?: () => void;
   onOpenSettings?: () => void;
   onOpenQr?: () => void;
@@ -24,6 +29,8 @@ interface ChatContainerProps {
 
 export function ChatContainer({
   initialSessionId,
+  initialWorkspace,
+  defaultModel,
   onLabelChange,
   onStreamingChange,
   onSessionIdChange,
@@ -53,13 +60,20 @@ export function ChatContainer({
     forceSendQueued,
     editQueued,
     deleteQueued,
-  } = useChat();
+  } = useChat(defaultModel, initialWorkspace);
 
   const haptics = useHaptics();
-  const notifications = useNotifications();
   const sound = useSound();
+  const notification = useNotification();
   const [workspace, setWorkspace] = useState<string>("");
   const [recentSessions, setRecentSessions] = useState<StoredSession[]>([]);
+  const [elapsed, setElapsed] = useState(0);
+  const [exportCopied, setExportCopied] = useState(false);
+  const [gitInfo, setGitInfo] = useState<{ branch: string; changedFiles: number } | null>(null);
+  const [gitPanelOpen, setGitPanelOpen] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalCount, setTerminalCount] = useState(0);
+  const terminalPollRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const prevMsgCountRef = useRef(0);
   const loadedInitialRef = useRef(false);
   const prevStreamingRef = useRef(false);
@@ -68,16 +82,20 @@ export function ChatContainer({
   useEffect(() => {
     if (initialSessionId && !loadedInitialRef.current) {
       loadedInitialRef.current = true;
-      loadSession(initialSessionId);
+      loadSession(initialSessionId, initialWorkspace);
     }
-  }, [initialSessionId, loadSession]);
+  }, [initialSessionId, initialWorkspace, loadSession]);
 
   const fetchWorkspace = useCallback(() => {
+    if (initialWorkspace) {
+      setWorkspace(initialWorkspace);
+      return;
+    }
     apiFetch("/api/info")
       .then((r) => r.json())
       .then((data) => setWorkspace(data.workspace || ""))
       .catch((err) => console.error("[workspace] Failed to fetch:", err));
-  }, []);
+  }, [initialWorkspace]);
 
   useEffect(() => {
     fetchWorkspace();
@@ -100,26 +118,36 @@ export function ChatContainer({
   useEffect(() => {
     if (isStreaming && !prevStreamingRef.current) {
       streamStartRef.current = Date.now();
-      notifications.requestPermission();
+      notification.dismiss();
     }
     if (prevStreamingRef.current && !isStreaming) {
       const duration = Date.now() - streamStartRef.current;
       const longEnough = duration > 3000;
+      const elapsedSec = Math.floor(duration / 1000);
       if (error) {
-        notifications.notify("Agent error", { body: error });
         if (longEnough || document.hidden) sound.playError();
       } else {
-        const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-        notifications.notify("Agent finished", {
-          body: lastAssistant?.content.slice(0, 80) || "Response complete",
-        });
         if (longEnough || document.hidden) sound.playComplete();
+      }
+      if (document.hidden) {
+        notification.notify(error ? "error" : "complete", elapsedSec);
       }
     }
     prevStreamingRef.current = isStreaming;
     onStreamingChange?.(isStreaming);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isStreaming, error]);
+
+  useEffect(() => {
+    if (!isStreaming) {
+      setElapsed(0);
+      return;
+    }
+    const tick = () => setElapsed(Math.floor((Date.now() - streamStartRef.current) / 1000));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [isStreaming]);
 
   useEffect(() => {
     onSessionIdChange?.(sessionId);
@@ -134,7 +162,62 @@ export function ChatContainer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages]);
 
+  const handleExport = useCallback(async () => {
+    const md = exportSessionMarkdown(messages, toolCalls);
+    try {
+      await navigator.clipboard.writeText(md);
+      haptics.tap();
+      setExportCopied(true);
+      setTimeout(() => setExportCopied(false), 1500);
+    } catch {
+      const blob = new Blob([md], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `session-${sessionId?.slice(0, 8) || "export"}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }, [messages, toolCalls, sessionId, haptics]);
+
+  const fetchTerminalCount = useCallback(() => {
+    apiFetch("/api/terminal")
+      .then((r) => r.json())
+      .then((data) => {
+        const all: { cwd: string }[] = data.terminals || [];
+        const count = workspace ? all.filter((t) => t.cwd === workspace).length : all.length;
+        setTerminalCount(count);
+      })
+      .catch(() => {});
+  }, [workspace]);
+
+  useEffect(() => {
+    fetchTerminalCount();
+    terminalPollRef.current = setInterval(fetchTerminalCount, 10_000);
+    return () => clearInterval(terminalPollRef.current);
+  }, [fetchTerminalCount]);
+
+  useEffect(() => {
+    if (!workspace) return;
+    const gitUrl = `/api/git?workspace=${encodeURIComponent(workspace)}`;
+    const fetchGit = () => {
+      apiFetch(gitUrl)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.branch) setGitInfo({ branch: data.branch, changedFiles: data.changedFiles ?? 0 });
+          else setGitInfo(null);
+        })
+        .catch(() => {});
+    };
+    fetchGit();
+    const id = setInterval(fetchGit, 30_000);
+    return () => clearInterval(id);
+  }, [workspace]);
+
   const dirName = workspace.split("/").filter(Boolean).pop() || "~";
+  const elapsedLabel = elapsed >= 60
+    ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
+    : `${elapsed}s`;
 
   return (
     <div className="h-full flex flex-col">
@@ -151,10 +234,37 @@ export function ChatContainer({
             <MenuIcon />
           </button>
           <span className="text-[13px] font-medium text-text-secondary">{dirName}</span>
-          {model && isStreaming && (
+          {gitInfo && (
+            <button
+              onClick={() => setGitPanelOpen(true)}
+              className="flex items-center gap-1 text-[10px] text-text-muted bg-bg-surface hover:bg-bg-hover rounded px-1.5 py-0.5 transition-colors"
+            >
+              <GitBranchIcon size={10} />
+              <span className="truncate max-w-[80px]">{gitInfo.branch}</span>
+              {gitInfo.changedFiles > 0 && (
+                <span className="text-warning">+{gitInfo.changedFiles}</span>
+              )}
+            </button>
+          )}
+          <button
+            onClick={() => setTerminalOpen(true)}
+            className="flex items-center gap-1 text-[10px] text-text-muted bg-bg-surface hover:bg-bg-hover rounded px-1.5 py-0.5 transition-colors"
+          >
+            <TerminalIcon size={10} />
+            <span>Terminal</span>
+            {terminalCount > 0 && (
+              <span className="text-success">{terminalCount}</span>
+            )}
+          </button>
+          {isStreaming && (
             <>
-              <span className="text-text-muted text-[11px]">/</span>
-              <span className="text-[11px] text-text-muted truncate max-w-[120px]">{model}</span>
+              {model && (
+                <>
+                  <span className="text-text-muted text-[11px]">/</span>
+                  <span className="text-[11px] text-text-muted truncate max-w-[120px]">{model}</span>
+                </>
+              )}
+              <span className="text-[11px] text-text-muted/60 tabular-nums">{elapsedLabel}</span>
             </>
           )}
         </div>
@@ -164,6 +274,15 @@ export function ChatContainer({
             <span className="text-[10px] text-text-muted font-mono mr-1 hidden sm:inline opacity-60">
               {sessionId.slice(0, 8)}
             </span>
+          )}
+          {sessionId && messages.length > 0 && (
+            <button
+              onClick={handleExport}
+              className="p-2 rounded-md hover:bg-bg-hover transition-colors text-text-muted hover:text-text-secondary"
+              aria-label={exportCopied ? "Copied to clipboard" : "Export conversation"}
+            >
+              {exportCopied ? <CheckIcon size={14} /> : <ExportIcon size={14} />}
+            </button>
           )}
           <button
             onClick={() => {
@@ -208,6 +327,34 @@ export function ChatContainer({
         </div>
       )}
 
+      {notification.pending && (
+        <div
+          className={`shrink-0 flex items-center justify-between px-4 py-2 border-b text-[12px] ${
+            notification.pending.type === "error"
+              ? "border-error/20 text-error bg-error/5"
+              : "border-success/20 text-success bg-success/5"
+          }`}
+        >
+          <span>
+            {notification.pending.type === "error" ? "Agent errored" : "Agent finished"}
+            {notification.pending.elapsed !== null && notification.pending.elapsed !== undefined && notification.pending.elapsed > 0 && (
+              <span className="opacity-60 ml-1">
+                ({notification.pending.elapsed >= 60
+                  ? `${Math.floor(notification.pending.elapsed / 60)}m ${notification.pending.elapsed % 60}s`
+                  : `${notification.pending.elapsed}s`})
+              </span>
+            )}
+          </span>
+          <button
+            onClick={notification.dismiss}
+            className="p-0.5 rounded hover:bg-bg-hover transition-colors"
+            aria-label="Dismiss notification"
+          >
+            <CloseIcon size={12} />
+          </button>
+        </div>
+      )}
+
       <MessageList
         messages={messages}
         toolCalls={toolCalls}
@@ -231,6 +378,30 @@ export function ChatContainer({
         selectedMode={selectedMode}
         onModelChange={setSelectedModel}
         onModeChange={setSelectedMode}
+      />
+
+      <GitPanel
+        open={gitPanelOpen}
+        onClose={() => {
+          setGitPanelOpen(false);
+          if (workspace) {
+            apiFetch(`/api/git?workspace=${encodeURIComponent(workspace)}`)
+              .then((r) => r.json())
+              .then((data) => {
+                if (data.branch) setGitInfo({ branch: data.branch, changedFiles: data.changedFiles ?? 0 });
+                else setGitInfo(null);
+              })
+              .catch(() => {});
+          }
+        }}
+        workspace={workspace || undefined}
+      />
+
+      <TerminalPanel
+        open={terminalOpen}
+        onClose={() => setTerminalOpen(false)}
+        workspace={workspace || undefined}
+        onCountChange={(n) => { setTerminalCount(n); }}
       />
     </div>
   );

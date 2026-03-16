@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import type { ChatMessage, AgentMode } from "@/lib/types";
 import { apiFetch } from "@/lib/api-fetch";
 import { uuid } from "@/lib/uuid";
+import { STREAMING_HEALTH_CHECK_MS } from "@/lib/constants";
 import { useSessionWatch } from "./use-session-watch";
 import { useMessageQueue } from "./use-message-queue";
 
@@ -20,7 +21,7 @@ interface UseChatReturn {
   error: string | null;
   queuedMessages: ReturnType<typeof useMessageQueue>["queuedMessages"];
   sendMessage: (prompt: string, overrides?: { model?: string; mode?: AgentMode }) => Promise<void>;
-  loadSession: (id: string) => Promise<void>;
+  loadSession: (id: string, workspace?: string) => Promise<void>;
   setSessionId: (id: string | null) => void;
   setSelectedModel: (model: string) => void;
   setSelectedMode: (mode: AgentMode) => void;
@@ -45,16 +46,17 @@ async function fetchActiveSessions(): Promise<string[]> {
 
 export { fetchActiveSessions };
 
-export function useChat(): UseChatReturn {
+export function useChat(initialModel = "auto", initialWorkspace?: string): UseChatReturn {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [model, setModel] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<string>("auto");
+  const [selectedModel, setSelectedModel] = useState<string>(initialModel);
   const [selectedMode, setSelectedMode] = useState<AgentMode>("agent");
   const [error, setError] = useState<string | null>(null);
 
   const sessionIdRef = useRef<string | null>(null);
+  const workspaceRef = useRef<string | undefined>(initialWorkspace);
   const isStreamingRef = useRef(false);
   const sendMessageRef = useRef<
     ((prompt: string, overrides?: { model?: string; mode?: AgentMode }) => Promise<void>) | undefined
@@ -62,6 +64,7 @@ export function useChat(): UseChatReturn {
 
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
   useEffect(() => { isStreamingRef.current = isStreaming; }, [isStreaming]);
+  useEffect(() => { if (!sessionId) workspaceRef.current = initialWorkspace; }, [initialWorkspace, sessionId]);
 
   const handleStreamEnd = useCallback(() => {
     setIsStreaming(false);
@@ -87,6 +90,7 @@ export function useChat(): UseChatReturn {
     watch.stopWatching();
     watch.resetState();
     setSessionId(null);
+    workspaceRef.current = initialWorkspace;
     setModel(null);
     setError(null);
     setIsStreaming(false);
@@ -105,16 +109,17 @@ export function useChat(): UseChatReturn {
   }, []);
 
   const loadSession = useCallback(
-    async (id: string) => {
+    async (id: string, workspace?: string) => {
       watch.stopWatching();
       watch.resetState();
       setIsLoadingHistory(true);
       setError(null);
       setSessionId(id);
+      workspaceRef.current = workspace;
 
       try {
-        await watch.refreshFromHistory(id);
-        watch.startWatching(id);
+        await watch.refreshFromHistory(id, workspace);
+        watch.startWatching(id, workspace);
 
         const active = await fetchActiveSessions();
         if (active.includes(id)) {
@@ -161,6 +166,7 @@ export function useChat(): UseChatReturn {
             sessionId: sessionIdRef.current ?? undefined,
             model: effectiveModel !== "auto" ? effectiveModel : undefined,
             mode: effectiveMode !== "agent" ? effectiveMode : undefined,
+            workspace: workspaceRef.current,
           }),
         });
 
@@ -176,7 +182,7 @@ export function useChat(): UseChatReturn {
         setSessionId(newSessionId);
         if (data.model) setModel(data.model);
 
-        watch.startWatching(newSessionId);
+        watch.startWatching(newSessionId, workspaceRef.current);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
         const message = err instanceof Error ? err.message : "Unknown error";
@@ -196,11 +202,11 @@ export function useChat(): UseChatReturn {
       if (!sid) return;
 
       try {
-        await watch.refreshFromHistory(sid);
+        await watch.refreshFromHistory(sid, workspaceRef.current);
         const active = await fetchActiveSessions();
         setIsStreaming(active.includes(sid));
         setError(null);
-        if (!watch.isWatching) watch.startWatching(sid);
+        if (!watch.isWatching) watch.startWatching(sid, workspaceRef.current);
       } catch {
         console.error("[chat] Failed to refresh on visibility change");
       }
@@ -217,6 +223,22 @@ export function useChat(): UseChatReturn {
     const overrides = msg.model || msg.mode ? { model: msg.model, mode: msg.mode } : undefined;
     setTimeout(() => { sendMessageRef.current?.(msg.content, overrides); }, 0);
   }, [queueHook]);
+
+  useEffect(() => {
+    if (!isStreaming) return;
+    const timer = setInterval(async () => {
+      const sid = sessionIdRef.current;
+      if (!sid || !isStreamingRef.current) return;
+      try {
+        const active = await fetchActiveSessions();
+        if (!active.includes(sid)) {
+          setIsStreaming(false);
+          await watch.refreshFromHistory(sid, workspaceRef.current);
+        }
+      } catch { /* ignore */ }
+    }, STREAMING_HEALTH_CHECK_MS);
+    return () => clearInterval(timer);
+  }, [isStreaming, watch]);
 
   const retryLastMessage = useCallback(() => {
     if (isStreamingRef.current) return;

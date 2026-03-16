@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { PwaInstall } from "@/components/pwa-install";
-import { SwRegister } from "@/components/sw-register";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -21,12 +20,24 @@ export const viewport: Viewport = {
   themeColor: "#0a0a0b",
 };
 
+const SW_CLEANUP_SCRIPT = `
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.getRegistrations().then(function(r){
+    r.forEach(function(reg){reg.unregister()})
+  });
+  if(typeof caches!=='undefined'){
+    caches.keys().then(function(k){
+      k.forEach(function(n){caches.delete(n)})
+    })
+  }
+}`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body className="overscroll-none">
+        <script dangerouslySetInnerHTML={{ __html: SW_CLEANUP_SCRIPT }} />
         {children}
-        <SwRegister />
         <PwaInstall />
       </body>
     </html>

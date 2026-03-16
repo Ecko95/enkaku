@@ -39,19 +39,37 @@ export function useSessionWatch(options: UseSessionWatchOptions = {}) {
     setIsWatching(false);
   }, []);
 
+  const mergeMessages = useCallback((incoming: ChatMessage[]) => {
+    setMessages((prev) => {
+      const incomingIds = new Set(incoming.map((m) => m.id));
+      const incomingUserTexts = new Set(
+        incoming.filter((m) => m.role === "user").map((m) => m.content.trim()),
+      );
+      const optimistic = prev.filter(
+        (m) =>
+          m.role === "user" &&
+          !incomingIds.has(m.id) &&
+          !incomingUserTexts.has(m.content.trim()),
+      );
+      if (optimistic.length === 0) return incoming;
+      return [...incoming, ...optimistic];
+    });
+  }, []);
+
   const applyUpdate = useCallback((data: Record<string, unknown>) => {
     if (data.modifiedAt && (data.modifiedAt as number) > lastModifiedRef.current) {
       lastModifiedRef.current = data.modifiedAt as number;
-      if ((data.messages as ChatMessage[])?.length > 0) setMessages(data.messages as ChatMessage[]);
+      if ((data.messages as ChatMessage[])?.length > 0) mergeMessages(data.messages as ChatMessage[]);
       if ((data.toolCalls as ToolCallInfo[])?.length > 0) setToolCalls(data.toolCalls as ToolCallInfo[]);
     }
-  }, []);
+  }, [mergeMessages]);
 
   const startWatching = useCallback(
-    (id: string) => {
+    (id: string, workspace?: string) => {
       stopWatching();
 
-      const url = `/api/sessions/watch?id=${encodeURIComponent(id)}`;
+      let url = `/api/sessions/watch?id=${encodeURIComponent(id)}`;
+      if (workspace) url += `&workspace=${encodeURIComponent(workspace)}`;
       const es = new EventSource(url);
       eventSourceRef.current = es;
 
@@ -64,9 +82,10 @@ export function useSessionWatch(options: UseSessionWatchOptions = {}) {
             onStreamStartRef.current?.();
           } else {
             setIsActive(false);
+            onStreamEndRef.current?.();
           }
           if (data.modifiedAt) lastModifiedRef.current = data.modifiedAt;
-          if (data.messages?.length > 0) setMessages(data.messages);
+          if (data.messages?.length > 0) mergeMessages(data.messages);
           if (data.toolCalls?.length > 0) setToolCalls(data.toolCalls);
         } catch {
           console.error("[watch] Failed to parse connected event");
@@ -90,24 +109,29 @@ export function useSessionWatch(options: UseSessionWatchOptions = {}) {
       });
 
       es.addEventListener("error", () => {
-        // EventSource auto-reconnects
+        if (es.readyState === EventSource.CLOSED) {
+          setIsActive(false);
+          onStreamEndRef.current?.();
+        }
       });
     },
-    [stopWatching, applyUpdate],
+    [stopWatching, applyUpdate, mergeMessages],
   );
 
-  const refreshFromHistory = useCallback(async (sessionId: string) => {
+  const refreshFromHistory = useCallback(async (sessionId: string, workspace?: string) => {
     try {
-      const res = await apiFetch(`/api/sessions/history?id=${encodeURIComponent(sessionId)}`);
+      let url = `/api/sessions/history?id=${encodeURIComponent(sessionId)}`;
+      if (workspace) url += `&workspace=${encodeURIComponent(workspace)}`;
+      const res = await apiFetch(url);
       if (!res.ok) return;
       const data = await res.json();
-      if (data.messages?.length > 0) setMessages(data.messages);
+      if (data.messages?.length > 0) mergeMessages(data.messages);
       if (data.toolCalls?.length > 0) setToolCalls(data.toolCalls);
       if (data.modifiedAt) lastModifiedRef.current = data.modifiedAt;
     } catch {
       console.error("[watch] Failed to refresh from history");
     }
-  }, []);
+  }, [mergeMessages]);
 
   const resetState = useCallback(() => {
     setMessages([]);

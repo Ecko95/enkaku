@@ -6,4 +6,5 @@ export const FILE_POLL_MS = 800;
 export const MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
 export const MODELS_FETCH_TIMEOUT_MS = 30_000;
 export const PROCESS_EXIT_SETTLE_MS = 300;
+export const STREAMING_HEALTH_CHECK_MS = 10_000;
 export const DEFAULT_PORT = 3100;

@@ -2,13 +2,18 @@ import { randomUUID } from "node:crypto";
 import { spawnAgent } from "@/lib/cursor-cli";
 import { getWorkspace } from "@/lib/workspace";
 import { upsertSession } from "@/lib/session-store";
-import { registerProcess, promoteToSessionId, pushLiveEvent } from "@/lib/process-registry";
+import { registerProcess, promoteToSessionId, pushLiveEvent, setProcessExitHook } from "@/lib/process-registry";
 import { chatRequestSchema, parseBody } from "@/lib/validation";
 import { badRequest, serverError, safeErrorMessage, parseJsonBody } from "@/lib/errors";
 import { AGENT_INIT_TIMEOUT_MS } from "@/lib/constants";
+import { notifyAgentComplete } from "@/lib/webhooks";
 import type { ChatRequest } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+setProcessExitHook((sessionId, workspace) => {
+  void notifyAgentComplete(sessionId, workspace);
+});
 
 function waitForSessionId(
   child: Awaited<ReturnType<typeof spawnAgent>>,
@@ -77,7 +82,7 @@ export async function POST(req: Request) {
   if ("error" in parsed) return badRequest(parsed.error);
   const body = parsed.data;
 
-  const workspace = getWorkspace();
+  const workspace = body.workspace || getWorkspace();
 
   try {
     const requestId = randomUUID();
@@ -104,7 +109,7 @@ export async function POST(req: Request) {
     });
 
     if (verbose) {
-      console.log(`[chat] spawning agent in ${workspace} (model=${body.model ?? "default"}, mode=${body.mode ?? "agent"})`);
+      console.warn(`[chat] spawning agent in ${workspace} (model=${body.model ?? "default"}, mode=${body.mode ?? "agent"})`);
     }
 
     const sessionId = await waitForSessionId(child, workspace, body.prompt, requestId);
@@ -116,7 +121,7 @@ export async function POST(req: Request) {
     }
 
     if (verbose) {
-      console.log(`[chat] agent started session ${sessionId}`);
+      console.warn(`[chat] agent started session ${sessionId}`);
     }
 
     return Response.json({ sessionId });

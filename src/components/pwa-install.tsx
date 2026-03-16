@@ -1,11 +1,26 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { apiFetch } from "@/lib/api-fetch";
 
 export function PwaInstall() {
+  const [enabled, setEnabled] = useState(false);
+
   useEffect(() => {
-    import("@khmyznikov/pwa-install").catch(() => {});
+    apiFetch("/api/settings")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.settings?.pwa_prompt !== false) setEnabled(true);
+      })
+      .catch(() => setEnabled(true));
   }, []);
+
+  useEffect(() => {
+    if (!enabled) return;
+    import("@khmyznikov/pwa-install").catch(() => {});
+  }, [enabled]);
+
+  if (!enabled) return null;
 
   return (
     <pwa-install

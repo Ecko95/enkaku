@@ -132,7 +132,6 @@ function unauthorizedHtml(wrongToken = false): string {
 export function middleware(req: NextRequest) {
   const token = process.env.AUTH_TOKEN?.toLowerCase();
   if (!token) {
-    console.warn("[clr] AUTH_TOKEN is not set — all requests are unauthenticated");
     return NextResponse.next();
   }
 

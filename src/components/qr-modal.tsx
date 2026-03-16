@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import type { NetworkInfo } from "@/lib/types";
+import { useHaptics } from "@/hooks/use-haptics";
 import { apiFetch } from "@/lib/api-fetch";
 import { Spinner } from "./icons";
 
@@ -14,6 +15,7 @@ interface QrModalProps {
 export function QrModal({ open, onClose }: QrModalProps) {
   const [info, setInfo] = useState<NetworkInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const haptics = useHaptics();
 
   useEffect(() => {
     if (!open) return;
@@ -66,7 +68,7 @@ export function QrModal({ open, onClose }: QrModalProps) {
         )}
 
         <button
-          onClick={onClose}
+          onClick={() => { haptics.tap(); onClose(); }}
           className="mt-4 w-full py-1.5 rounded-lg text-[12px] text-text-muted hover:text-text-secondary transition-colors"
         >
           Close

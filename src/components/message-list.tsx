@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { ChatMessage, ToolCallInfo, StoredSession, QueuedMessage } from "@/lib/types";
+import { useHaptics } from "@/hooks/use-haptics";
 import { timeAgo } from "@/lib/format";
 import { MessageBubble } from "./message-bubble";
-import { ToolCallCard, ToolCallGroup, TodoLogCard, isMinorToolCall } from "./tool-call-card";
+import { ToolCallCard, ToolCallGroup, TodoLogCard, ChangesSummary, isMinorToolCall } from "./tool-call-card";
 import { Spinner, RetryIcon, ClockIcon, ArrowDown } from "./icons";
 
 interface MessageListProps {
@@ -14,7 +15,7 @@ interface MessageListProps {
   isLoadingHistory?: boolean;
   isWatching?: boolean;
   recentSessions?: StoredSession[];
-  onSelectSession?: (id: string) => void;
+  onSelectSession?: (id: string, workspace?: string) => void;
   onRetry?: () => void;
   queuedMessages?: QueuedMessage[];
   onForceSend?: (id: string) => void;
@@ -35,8 +36,9 @@ function RecentSessions({
   onSelect,
 }: {
   sessions: StoredSession[];
-  onSelect: (id: string) => void;
+  onSelect: (id: string, workspace?: string) => void;
 }) {
+  const haptics = useHaptics();
   if (sessions.length === 0) return null;
 
   return (
@@ -48,7 +50,7 @@ function RecentSessions({
         {sessions.map((s) => (
           <button
             key={s.id}
-            onClick={() => onSelect(s.id)}
+            onClick={() => { haptics.tap(); onSelect(s.id, s.workspace); }}
             className="w-full text-left px-3 py-2 rounded-lg bg-bg-surface hover:bg-bg-hover border border-border/50 transition-colors group"
           >
             <p className="text-[12px] text-text-secondary group-hover:text-text truncate">
@@ -75,6 +77,7 @@ function QueuedMessageCard({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(msg.content);
+  const haptics = useHaptics();
 
   const save = () => {
     const trimmed = draft.trim();
@@ -137,7 +140,7 @@ function QueuedMessageCard({
         <div className="flex items-center gap-1 mt-1.5 ml-5">
           <span className="text-[10px] text-text-muted/50 mr-1">Queued</span>
           <button
-            onClick={onForceSend}
+            onClick={() => { haptics.send(); onForceSend(); }}
             className="px-2 py-0.5 text-[10px] font-medium rounded bg-bg-active text-text-secondary hover:text-text transition-colors"
             title="Stop current and send this now"
           >
@@ -145,6 +148,7 @@ function QueuedMessageCard({
           </button>
           <button
             onClick={() => {
+              haptics.tap();
               setDraft(msg.content);
               setEditing(true);
             }}
@@ -153,7 +157,7 @@ function QueuedMessageCard({
             Edit
           </button>
           <button
-            onClick={onDelete}
+            onClick={() => { haptics.warn(); onDelete(); }}
             className="px-2 py-0.5 text-[10px] font-medium rounded text-text-muted hover:text-error/80 hover:bg-error/5 transition-colors"
           >
             Delete
@@ -178,6 +182,7 @@ export function MessageList({
   onEditQueued,
   onDeleteQueued,
 }: MessageListProps) {
+  const haptics = useHaptics();
   const scrollRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -296,6 +301,15 @@ export function MessageList({
   const lastIsUser = lastItem?.kind === "message" && lastItem.message?.role === "user";
   const showThinking = isStreaming && !hasRunningToolCalls && lastIsUser;
 
+  let lastTodoId: string | undefined;
+  for (let i = timeline.length - 1; i >= 0; i--) {
+    const t = timeline[i];
+    if (t.kind === "toolcall" && t.toolCall?.type === "todo") {
+      lastTodoId = t.toolCall.id;
+      break;
+    }
+  }
+
   const lastMessage = messages[messages.length - 1];
   const showRetry = !isStreaming && lastMessage?.role === "user" && onRetry;
 
@@ -314,7 +328,7 @@ export function MessageList({
               }
               if (item.kind === "toolcall" && item.toolCall) {
                 if (item.toolCall.type === "todo") {
-                  return <TodoLogCard key={item.toolCall.id} toolCall={item.toolCall} />;
+                  return <TodoLogCard key={item.toolCall.id} toolCall={item.toolCall} defaultOpen={item.toolCall.id === lastTodoId} />;
                 }
                 return <ToolCallCard key={item.toolCall.id} toolCall={item.toolCall} />;
               }
@@ -324,6 +338,10 @@ export function MessageList({
               return null;
             })}
           </div>
+
+          {!isStreaming && timeline.length > 0 && toolCalls.length > 0 && (
+            <ChangesSummary toolCalls={toolCalls} />
+          )}
 
           {showThinking && (
             <div className="py-3 flex items-center gap-2 text-text-muted text-[12px]">
@@ -342,7 +360,7 @@ export function MessageList({
           {showRetry && (
             <div className="py-1">
               <button
-                onClick={onRetry}
+                onClick={() => { haptics.tap(); onRetry?.(); }}
                 className="flex items-center gap-1 text-[10px] text-text-muted/60 hover:text-text-muted transition-colors"
                 aria-label="Retry last message"
               >

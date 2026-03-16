@@ -3,6 +3,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useHaptics } from "@/hooks/use-haptics";
 import { fetchActiveSessions } from "@/hooks/use-chat";
+import { apiFetch } from "@/lib/api-fetch";
 import { ChatContainer } from "./chat-container";
 import { SessionSidebar } from "./session-sidebar";
 import { SettingsPanel } from "./settings-panel";
@@ -16,26 +17,61 @@ interface ChatInstance {
   label: string;
   isStreaming: boolean;
   initialSessionId?: string;
+  initialWorkspace?: string;
 }
 
-function makeInstance(initialSessionId?: string): ChatInstance {
+function makeInstance(initialSessionId?: string, initialWorkspace?: string): ChatInstance {
   return {
     id: uuid(),
     sessionId: null,
     label: initialSessionId ? "Loading..." : "New chat",
     isStreaming: false,
     initialSessionId,
+    initialWorkspace,
+  };
+}
+
+function getHashParams(): { sessionId: string | null; workspace: string | null } {
+  if (typeof window === "undefined") return { sessionId: null, workspace: null };
+  const hash = window.location.hash;
+  const sessionMatch = hash.match(/session=([a-f0-9-]+)/i);
+  const workspaceMatch = hash.match(/workspace=([^&]+)/);
+  return {
+    sessionId: sessionMatch?.[1] ?? null,
+    workspace: workspaceMatch ? decodeURIComponent(workspaceMatch[1]) : null,
   };
 }
 
 export function ChatWorkspace() {
-  const [instances, setInstances] = useState<ChatInstance[]>(() => [makeInstance()]);
+  const [instances, setInstances] = useState<ChatInstance[]>(() => {
+    const { sessionId: hashSession, workspace: hashWorkspace } = getHashParams();
+    return [makeInstance(hashSession ?? undefined, hashWorkspace ?? undefined)];
+  });
   const [activeId, setActiveId] = useState<string>(() => instances[0].id);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
+  const [defaultModel, setDefaultModel] = useState<string>("auto");
   const haptics = useHaptics();
   const restoredRef = useRef(false);
+  const settingsLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (window.location.hash.includes("session=")) {
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (settingsLoadedRef.current) return;
+    settingsLoadedRef.current = true;
+    apiFetch("/api/settings")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.settings?.default_model) setDefaultModel(data.settings.default_model);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (restoredRef.current) return;
@@ -84,24 +120,31 @@ export function ChatWorkspace() {
     return map;
   }, [instances]);
 
-  const handleNewSession = useCallback(() => {
+  const handleNewSession = useCallback((workspace?: string) => {
     haptics.tap();
     const current = instances.find((i) => i.id === activeId);
-    if (current && !current.sessionId && !current.isStreaming) return;
-    const inst = makeInstance();
+    if (current && !current.sessionId && !current.isStreaming) {
+      if (workspace && current.initialWorkspace !== workspace) {
+        const inst = makeInstance(undefined, workspace);
+        setInstances((prev) => prev.map((i) => (i.id === activeId ? inst : i)));
+        setActiveId(inst.id);
+      }
+      return;
+    }
+    const inst = makeInstance(undefined, workspace);
     setInstances((prev) => [...prev, inst]);
     setActiveId(inst.id);
   }, [haptics, instances, activeId]);
 
   const handleSelectSession = useCallback(
-    (sessionId: string) => {
+    (sessionId: string, workspace?: string) => {
       const existing = instances.find((i) => i.sessionId === sessionId);
       if (existing) {
         setActiveId(existing.id);
         return;
       }
 
-      const inst = makeInstance(sessionId);
+      const inst = makeInstance(sessionId, workspace);
       const current = instances.find((i) => i.id === activeId);
 
       if (current && !current.sessionId && !current.isStreaming) {
@@ -138,6 +181,37 @@ export function ChatWorkspace() {
     });
   }, []);
 
+  const handleWorkspaceChange = useCallback((workspace: string | null) => {
+    const ws = workspace ?? undefined;
+    setInstances((prev) => {
+      const current = prev.find((i) => i.id === activeId);
+      if (!current || current.sessionId || current.isStreaming) return prev;
+      if (current.initialWorkspace === ws) return prev;
+      return prev.map((i) => (i.id === activeId ? { ...i, initialWorkspace: ws } : i));
+    });
+  }, [activeId]);
+
+  const [workspaceTerminals, setWorkspaceTerminals] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const fetchCounts = () => {
+      apiFetch("/api/terminal")
+        .then((r) => r.json())
+        .then((data) => {
+          const all: { cwd: string; running: boolean }[] = data.terminals || [];
+          const counts: Record<string, number> = {};
+          for (const t of all) {
+            if (t.running) counts[t.cwd] = (counts[t.cwd] || 0) + 1;
+          }
+          setWorkspaceTerminals(counts);
+        })
+        .catch(() => {});
+    };
+    fetchCounts();
+    const id = setInterval(fetchCounts, 10_000);
+    return () => clearInterval(id);
+  }, []);
+
   const currentSessionId = instances.find((i) => i.id === activeId)?.sessionId ?? null;
 
   return (
@@ -147,6 +221,8 @@ export function ChatWorkspace() {
           <ErrorBoundary fallback="inline">
             <ChatContainer
               initialSessionId={inst.initialSessionId}
+              initialWorkspace={inst.initialWorkspace}
+              defaultModel={defaultModel}
               onLabelChange={(label) => updateLabel(inst.id, label)}
               onStreamingChange={(s) => updateStreaming(inst.id, s)}
               onSessionIdChange={(sid) => updateSessionId(inst.id, sid)}
@@ -165,10 +241,12 @@ export function ChatWorkspace() {
         currentSessionId={currentSessionId}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
+        onWorkspaceChange={handleWorkspaceChange}
         activeStatuses={activeStatuses}
+        workspaceTerminals={workspaceTerminals}
       />
 
-      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} onDefaultModelChange={setDefaultModel} />
 
       <QrModal open={qrOpen} onClose={() => setQrOpen(false)} />
     </div>

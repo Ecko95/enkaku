@@ -45,17 +45,15 @@ export async function getDb(): Promise<Database> {
       updated_at INTEGER NOT NULL
     )
   `);
+  try {
+    db.run("ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
+  } catch {
+    // column already exists
+  }
   db.run(`
     CREATE TABLE IF NOT EXISTS config (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
-    )
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS push_subscriptions (
-      endpoint TEXT PRIMARY KEY,
-      subscription TEXT NOT NULL,
-      created_at INTEGER NOT NULL
     )
   `);
 
@@ -101,6 +99,12 @@ function rowToSession(row: Record<string, SqlValue>): StoredSession {
   };
 }
 
+export async function getSessionTitle(sessionId: string): Promise<string | null> {
+  const conn = await getDb();
+  const row = queryOne(conn, "SELECT title FROM sessions WHERE id = ?", [sessionId]);
+  return row ? (row.title as string) : null;
+}
+
 export async function upsertSession(
   sessionId: string,
   workspace: string,
@@ -127,12 +131,62 @@ export async function upsertSession(
   return { id: sessionId, title, workspace, preview, createdAt: now, updatedAt: now };
 }
 
-export async function listSessions(workspace?: string): Promise<StoredSession[]> {
+export async function listSessions(workspace?: string, includeArchived = false): Promise<StoredSession[]> {
   const conn = await getDb();
+  const archivedFilter = includeArchived ? " archived = 1" : " archived = 0";
   const rows = workspace
-    ? queryAll(conn, "SELECT * FROM sessions WHERE workspace = ? ORDER BY updated_at DESC", [workspace])
-    : queryAll(conn, "SELECT * FROM sessions ORDER BY updated_at DESC");
+    ? queryAll(conn, "SELECT * FROM sessions WHERE workspace = ? AND" + archivedFilter + " ORDER BY updated_at DESC", [workspace])
+    : queryAll(conn, "SELECT * FROM sessions WHERE" + archivedFilter + " ORDER BY updated_at DESC");
   return rows.map(rowToSession);
+}
+
+export async function archiveSession(sessionId: string, session?: StoredSession): Promise<void> {
+  const conn = await getDb();
+  const existing = queryOne(conn, "SELECT id FROM sessions WHERE id = ?", [sessionId]);
+  if (!existing && session) {
+    const now = Date.now();
+    conn.run(
+      "INSERT INTO sessions (id, title, workspace, preview, created_at, updated_at, archived) VALUES (?, ?, ?, ?, ?, ?, 1)",
+      [session.id, session.title, session.workspace, session.preview, session.createdAt || now, session.updatedAt || now],
+    );
+  } else {
+    conn.run("UPDATE sessions SET archived = 1 WHERE id = ?", [sessionId]);
+  }
+  save();
+}
+
+export async function unarchiveSession(sessionId: string): Promise<void> {
+  const conn = await getDb();
+  conn.run("UPDATE sessions SET archived = 0 WHERE id = ?", [sessionId]);
+  save();
+}
+
+export async function archiveAllSessions(workspace?: string, extraSessions?: StoredSession[]): Promise<void> {
+  const conn = await getDb();
+  if (extraSessions) {
+    const now = Date.now();
+    for (const s of extraSessions) {
+      const existing = queryOne(conn, "SELECT id FROM sessions WHERE id = ?", [s.id]);
+      if (!existing) {
+        conn.run(
+          "INSERT INTO sessions (id, title, workspace, preview, created_at, updated_at, archived) VALUES (?, ?, ?, ?, ?, ?, 0)",
+          [s.id, s.title, s.workspace, s.preview, s.createdAt || now, s.updatedAt || now],
+        );
+      }
+    }
+  }
+  if (workspace) {
+    conn.run("UPDATE sessions SET archived = 1 WHERE workspace = ? AND archived = 0", [workspace]);
+  } else {
+    conn.run("UPDATE sessions SET archived = 1 WHERE archived = 0");
+  }
+  save();
+}
+
+export async function getArchivedSessionIds(): Promise<Set<string>> {
+  const conn = await getDb();
+  const rows = queryAll(conn, "SELECT id FROM sessions WHERE archived = 1");
+  return new Set(rows.map((r) => r.id as string));
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
@@ -151,6 +205,12 @@ export async function setConfig(key: string, value: string): Promise<void> {
   const conn = await getDb();
   conn.run("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", [key, value]);
   save();
+}
+
+export async function listWorkspaces(): Promise<string[]> {
+  const conn = await getDb();
+  const rows = queryAll(conn, "SELECT DISTINCT workspace FROM sessions ORDER BY workspace");
+  return rows.map((r) => r.workspace as string);
 }
 
 export async function getAllConfig(): Promise<Record<string, string>> {
