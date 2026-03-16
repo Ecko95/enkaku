@@ -5,6 +5,7 @@ import type { ChatMessage, AgentMode } from "@/lib/types";
 import { apiFetch } from "@/lib/api-fetch";
 import { uuid } from "@/lib/uuid";
 import { STREAMING_HEALTH_CHECK_MS } from "@/lib/constants";
+import { cacheMessages, getCachedMessages } from "@/lib/offline-store";
 import { useSessionWatch } from "./use-session-watch";
 import { useMessageQueue } from "./use-message-queue";
 
@@ -121,13 +122,22 @@ export function useChat(initialModel = "auto", initialWorkspace?: string): UseCh
         await watch.refreshFromHistory(id, workspace);
         watch.startWatching(id, workspace);
 
+        void cacheMessages(id, watch.messages, watch.toolCalls);
+
         const active = await fetchActiveSessions();
         if (active.includes(id)) {
           setIsStreaming(true);
         }
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to load session";
-        setError(msg);
+        const cached = await getCachedMessages(id);
+        if (cached && cached.messages.length > 0) {
+          watch.setMessages(cached.messages);
+          watch.setToolCalls(cached.toolCalls);
+          setError("Offline — showing cached history");
+        } else {
+          const msg = err instanceof Error ? err.message : "Failed to load session";
+          setError(msg);
+        }
       } finally {
         setIsLoadingHistory(false);
       }

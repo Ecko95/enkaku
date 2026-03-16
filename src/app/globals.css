@@ -21,6 +21,26 @@
   --font-mono: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
 }
 
+:root {
+  --clr-text-base: 13px;
+  --clr-text-sm: 12px;
+  --clr-text-xs: 11px;
+  --clr-text-2xs: 10px;
+  --clr-text-input: 13px;
+  --clr-touch-min: 32px;
+}
+
+@media (max-width: 640px) {
+  :root {
+    --clr-text-base: 16px;
+    --clr-text-sm: 14px;
+    --clr-text-xs: 13px;
+    --clr-text-2xs: 12px;
+    --clr-text-input: 16px;
+    --clr-touch-min: 44px;
+  }
+}
+
 html {
   color-scheme: dark;
 }

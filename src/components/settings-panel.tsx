@@ -12,6 +12,7 @@ interface Settings {
   pwa_prompt: boolean;
   default_model: string;
   webhook_url: string;
+  terminal_policy: string;
 }
 
 const DEFAULTS: Settings = {
@@ -20,6 +21,7 @@ const DEFAULTS: Settings = {
   pwa_prompt: true,
   default_model: "auto",
   webhook_url: "",
+  terminal_policy: "unrestricted",
 };
 
 const TOGGLE_LABELS: Record<"trust" | "sound" | "pwa_prompt", { label: string; description: string }> = {
@@ -274,6 +276,46 @@ export function SettingsPanel({ open, onClose, onDefaultModelChange }: SettingsP
                   </button>
                   <p className="text-[10px] text-text-muted/60 leading-tight px-0.5">
                     Paste a Slack, Discord, or custom webhook URL to receive push notifications when the agent completes
+                  </p>
+                </div>
+              </div>
+
+              <div className="pt-3 mt-2 border-t border-border">
+                <div className="px-3 py-2">
+                  <p className="text-[12px] text-text">Terminal policy</p>
+                  <p className="text-[11px] text-text-muted mt-0.5 leading-tight">
+                    Block dangerous commands in the remote terminal
+                  </p>
+                </div>
+                <div className="px-3">
+                  <div className="flex gap-1">
+                    {(["unrestricted", "restricted"] as const).map((policy) => (
+                      <button
+                        key={policy}
+                        onClick={() => {
+                          haptics.select();
+                          setSettings((prev) => {
+                            const next = { ...prev, terminal_policy: policy };
+                            apiFetch("/api/settings", {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ terminal_policy: policy }),
+                            }).catch(() => setSettings(prev));
+                            return next;
+                          });
+                        }}
+                        className={`flex-1 px-3 py-2 rounded-md text-[12px] font-medium transition-colors ${
+                          settings.terminal_policy === policy
+                            ? "bg-bg-active text-text"
+                            : "text-text-muted hover:text-text-secondary hover:bg-bg-hover"
+                        }`}
+                      >
+                        {policy === "unrestricted" ? "Unrestricted" : "Restricted"}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-text-muted/60 leading-tight px-0.5 mt-1.5">
+                    Restricted mode blocks rm -rf /, mkfs, dd, fork bombs, and other destructive patterns
                   </p>
                 </div>
               </div>

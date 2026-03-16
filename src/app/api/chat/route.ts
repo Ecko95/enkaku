@@ -7,6 +7,7 @@ import { chatRequestSchema, parseBody } from "@/lib/validation";
 import { badRequest, serverError, safeErrorMessage, parseJsonBody } from "@/lib/errors";
 import { AGENT_INIT_TIMEOUT_MS } from "@/lib/constants";
 import { notifyAgentComplete } from "@/lib/webhooks";
+import { logAudit } from "@/lib/audit-log";
 import type { ChatRequest } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -119,6 +120,8 @@ export async function POST(req: Request) {
       console.error("[chat] agent did not emit init event within timeout");
       return serverError("Agent failed to start");
     }
+
+    void logAudit("chat_sent", `prompt: ${body.prompt.slice(0, 100)}`, "", sessionId);
 
     if (verbose) {
       console.warn(`[chat] agent started session ${sessionId}`);

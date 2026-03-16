@@ -4,8 +4,9 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import type { StoredSession, ProjectInfo } from "@/lib/types";
 import { useHaptics } from "@/hooks/use-haptics";
 import { apiFetch } from "@/lib/api-fetch";
+import { cacheSessions, getCachedSessions } from "@/lib/offline-store";
 import { timeAgo } from "@/lib/format";
-import { RefreshIcon, CloseIcon, PlusIcon, Spinner, TrashIcon, ChevronDown } from "./icons";
+import { RefreshIcon, CloseIcon, PlusIcon, Spinner, TrashIcon, ChevronDown, PinIcon } from "./icons";
 
 interface SessionSidebarProps {
   open: boolean;
@@ -226,8 +227,22 @@ export function SessionSidebar({
     const qs = params.toString();
     return apiFetch("/api/sessions" + (qs ? "?" + qs : ""))
       .then((r) => r.json())
-      .then((data) => setSessions(data.sessions || []))
-      .catch(() => setFetchError("Failed to load sessions"));
+      .then((data) => {
+        const list: StoredSession[] = data.sessions || [];
+        setSessions(list);
+        void cacheSessions(list);
+      })
+      .catch(async () => {
+        const cached = await getCachedSessions(
+          selectedProject && selectedProject !== "__all__" ? selectedProject : undefined,
+        );
+        if (cached.length > 0) {
+          setSessions(cached);
+          setFetchError("Offline — showing cached sessions");
+        } else {
+          setFetchError("Failed to load sessions");
+        }
+      });
   }, [selectedProject, showArchived]);
 
   useEffect(() => {
@@ -269,6 +284,19 @@ export function SessionSidebar({
       haptics.warn();
       setConfirmingDelete(sessionId);
     }
+  };
+
+  const handlePinClick = (e: React.MouseEvent, session: StoredSession) => {
+    e.stopPropagation();
+    haptics.tap();
+    const action = session.pinned ? "unpin" : "pin";
+    apiFetch("/api/sessions", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, sessionId: session.id }),
+    })
+      .then(() => fetchSessions())
+      .catch(() => setFetchError("Failed to update session"));
   };
 
   const handleArchiveClick = (e: React.MouseEvent, session: StoredSession) => {
@@ -491,7 +519,13 @@ export function SessionSidebar({
               {showArchived ? "No archived sessions" : "No sessions"}
             </p>
           ) : (
-            sessions.map((s) => {
+            [...sessions]
+              .sort((a, b) => {
+                if (a.pinned && !b.pinned) return -1;
+                if (!a.pinned && b.pinned) return 1;
+                return 0;
+              })
+              .map((s) => {
               const status = activeStatuses[s.id];
               return (
                 <SessionTooltip key={s.id} session={s}>
@@ -510,7 +544,8 @@ export function SessionSidebar({
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 flex-1 min-w-0 pr-12">
+                        <div className="flex items-center gap-1.5 flex-1 min-w-0 pr-16">
+                          {s.pinned && <PinIcon size={10} filled className="shrink-0 text-text-secondary" />}
                           {status && <StatusIndicator status={status} />}
                           <p className="text-[12px] truncate">{s.title}</p>
                         </div>
@@ -543,6 +578,15 @@ export function SessionSidebar({
                       </div>
                     ) : (
                       <div className="absolute top-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+                        <button
+                          onClick={(e) => handlePinClick(e, s)}
+                          aria-label={s.pinned ? "Unpin session" : "Pin session"}
+                          className={`p-1.5 rounded hover:bg-bg-surface transition-colors ${
+                            s.pinned ? "text-text-secondary" : "text-text-muted hover:text-text-secondary"
+                          }`}
+                        >
+                          <PinIcon size={10} filled={s.pinned} />
+                        </button>
                         <button
                           onClick={(e) => handleArchiveClick(e, s)}
                           aria-label={showArchived ? "Unarchive session" : "Archive session"}

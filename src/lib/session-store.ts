@@ -50,6 +50,16 @@ export async function getDb(): Promise<Database> {
   } catch {
     // column already exists
   }
+  try {
+    db.run("ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
+  } catch {
+    // column already exists
+  }
+  try {
+    db.run("ALTER TABLE sessions ADD COLUMN starred INTEGER NOT NULL DEFAULT 0");
+  } catch {
+    // column already exists
+  }
   db.run(`
     CREATE TABLE IF NOT EXISTS config (
       key TEXT PRIMARY KEY,
@@ -96,6 +106,8 @@ function rowToSession(row: Record<string, SqlValue>): StoredSession {
     preview: row.preview as string,
     createdAt: row.created_at as number,
     updatedAt: row.updated_at as number,
+    pinned: (row.pinned as number) === 1,
+    starred: (row.starred as number) === 1,
   };
 }
 
@@ -193,6 +205,30 @@ export async function deleteSession(sessionId: string): Promise<void> {
   const conn = await getDb();
   conn.run("DELETE FROM sessions WHERE id = ?", [sessionId]);
   save();
+}
+
+export async function pinSession(sessionId: string, pinned: boolean): Promise<void> {
+  const conn = await getDb();
+  conn.run("UPDATE sessions SET pinned = ? WHERE id = ?", [pinned ? 1 : 0, sessionId]);
+  save();
+}
+
+export async function starSession(sessionId: string, starred: boolean): Promise<void> {
+  const conn = await getDb();
+  conn.run("UPDATE sessions SET starred = ? WHERE id = ?", [starred ? 1 : 0, sessionId]);
+  save();
+}
+
+export async function getPinnedSessionIds(): Promise<Set<string>> {
+  const conn = await getDb();
+  const rows = queryAll(conn, "SELECT id FROM sessions WHERE pinned = 1");
+  return new Set(rows.map((r) => r.id as string));
+}
+
+export async function getStarredSessionIds(): Promise<Set<string>> {
+  const conn = await getDb();
+  const rows = queryAll(conn, "SELECT id FROM sessions WHERE starred = 1");
+  return new Set(rows.map((r) => r.id as string));
 }
 
 export async function getConfig(key: string): Promise<string | undefined> {

@@ -10,9 +10,10 @@ import type { StoredSession } from "@/lib/types";
 import { MessageList } from "./message-list";
 import { ChatInput } from "./chat-input";
 import { exportSessionMarkdown } from "@/lib/export";
-import { MenuIcon, SettingsIcon, ExportIcon, CheckIcon, GitBranchIcon, CloseIcon, TerminalIcon } from "./icons";
+import { MenuIcon, SettingsIcon, ExportIcon, CheckIcon, GitBranchIcon, CloseIcon, TerminalIcon, FileIcon, DashboardIcon } from "./icons";
 import { GitPanel } from "./git-panel";
 import { TerminalPanel } from "./terminal-panel";
+import { FileBrowser } from "./file-browser";
 
 interface ChatContainerProps {
   initialSessionId?: string;
@@ -25,6 +26,7 @@ interface ChatContainerProps {
   onOpenSidebar?: () => void;
   onOpenSettings?: () => void;
   onOpenQr?: () => void;
+  onOpenDashboard?: () => void;
 }
 
 export function ChatContainer({
@@ -38,6 +40,7 @@ export function ChatContainer({
   onOpenSidebar,
   onOpenSettings,
   onOpenQr,
+  onOpenDashboard,
 }: ChatContainerProps) {
   const {
     messages,
@@ -73,6 +76,7 @@ export function ChatContainer({
   const [gitPanelOpen, setGitPanelOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalCount, setTerminalCount] = useState(0);
+  const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
   const terminalPollRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const prevMsgCountRef = useRef(0);
   const loadedInitialRef = useRef(false);
@@ -221,7 +225,7 @@ export function ChatContainer({
 
   return (
     <div className="h-full flex flex-col">
-      <header className="shrink-0 flex items-center justify-between h-11 px-3 border-b border-border">
+      <header className="shrink-0 flex items-center justify-between min-h-11 px-3 border-b border-border">
         <div className="flex items-center gap-2">
           <button
             onClick={() => {
@@ -229,15 +233,15 @@ export function ChatContainer({
               onOpenSidebar?.();
             }}
             aria-label="Open session sidebar"
-            className="p-2 rounded-md hover:bg-bg-hover transition-colors text-text-muted hover:text-text-secondary"
+            className="p-2 rounded-md hover:bg-bg-hover transition-colors text-text-muted hover:text-text-secondary min-w-[var(--clr-touch-min)] min-h-[var(--clr-touch-min)] flex items-center justify-center"
           >
             <MenuIcon />
           </button>
-          <span className="text-[13px] font-medium text-text-secondary">{dirName}</span>
+          <span className="text-[length:var(--clr-text-base)] font-medium text-text-secondary">{dirName}</span>
           {gitInfo && (
             <button
               onClick={() => setGitPanelOpen(true)}
-              className="flex items-center gap-1 text-[10px] text-text-muted bg-bg-surface hover:bg-bg-hover rounded px-1.5 py-0.5 transition-colors"
+              className="flex items-center gap-1 text-[length:var(--clr-text-2xs)] text-text-muted bg-bg-surface hover:bg-bg-hover rounded px-1.5 py-0.5 transition-colors"
             >
               <GitBranchIcon size={10} />
               <span className="truncate max-w-[80px]">{gitInfo.branch}</span>
@@ -248,7 +252,7 @@ export function ChatContainer({
           )}
           <button
             onClick={() => setTerminalOpen(true)}
-            className="flex items-center gap-1 text-[10px] text-text-muted bg-bg-surface hover:bg-bg-hover rounded px-1.5 py-0.5 transition-colors"
+            className="flex items-center gap-1 text-[length:var(--clr-text-2xs)] text-text-muted bg-bg-surface hover:bg-bg-hover rounded px-1.5 py-0.5 transition-colors"
           >
             <TerminalIcon size={10} />
             <span>Terminal</span>
@@ -256,22 +260,29 @@ export function ChatContainer({
               <span className="text-success">{terminalCount}</span>
             )}
           </button>
+          <button
+            onClick={() => setFileBrowserOpen(true)}
+            className="flex items-center gap-1 text-[length:var(--clr-text-2xs)] text-text-muted bg-bg-surface hover:bg-bg-hover rounded px-1.5 py-0.5 transition-colors"
+          >
+            <FileIcon size={10} />
+            <span>Files</span>
+          </button>
           {isStreaming && (
             <>
               {model && (
                 <>
-                  <span className="text-text-muted text-[11px]">/</span>
-                  <span className="text-[11px] text-text-muted truncate max-w-[120px]">{model}</span>
+                  <span className="text-text-muted text-[length:var(--clr-text-xs)]">/</span>
+                  <span className="text-[length:var(--clr-text-xs)] text-text-muted truncate max-w-[120px]">{model}</span>
                 </>
               )}
-              <span className="text-[11px] text-text-muted/60 tabular-nums">{elapsedLabel}</span>
+              <span className="text-[length:var(--clr-text-xs)] text-text-muted/60 tabular-nums">{elapsedLabel}</span>
             </>
           )}
         </div>
 
         <div className="flex items-center gap-1">
           {sessionId && (
-            <span className="text-[10px] text-text-muted font-mono mr-1 hidden sm:inline opacity-60">
+            <span className="text-[length:var(--clr-text-2xs)] text-text-muted font-mono mr-1 hidden sm:inline opacity-60">
               {sessionId.slice(0, 8)}
             </span>
           )}
@@ -284,6 +295,16 @@ export function ChatContainer({
               {exportCopied ? <CheckIcon size={14} /> : <ExportIcon size={14} />}
             </button>
           )}
+          <button
+            onClick={() => {
+              haptics.tap();
+              onOpenDashboard?.();
+            }}
+            className="p-2 rounded-md hover:bg-bg-hover transition-colors text-text-muted hover:text-text-secondary"
+            aria-label="System status"
+          >
+            <DashboardIcon size={14} />
+          </button>
           <button
             onClick={() => {
               haptics.tap();
@@ -322,14 +343,14 @@ export function ChatContainer({
       </header>
 
       {error && (
-        <div className="shrink-0 px-4 py-2 border-b border-error/20 text-error text-[12px] bg-error/5">
+        <div className="shrink-0 px-4 py-2 border-b border-error/20 text-error text-[length:var(--clr-text-sm)] bg-error/5">
           {error}
         </div>
       )}
 
       {notification.pending && (
         <div
-          className={`shrink-0 flex items-center justify-between px-4 py-2 border-b text-[12px] ${
+          className={`shrink-0 flex items-center justify-between px-4 py-2 border-b text-[length:var(--clr-text-sm)] ${
             notification.pending.type === "error"
               ? "border-error/20 text-error bg-error/5"
               : "border-success/20 text-success bg-success/5"
@@ -402,6 +423,24 @@ export function ChatContainer({
         onClose={() => setTerminalOpen(false)}
         workspace={workspace || undefined}
         onCountChange={(n) => { setTerminalCount(n); }}
+      />
+
+      <FileBrowser
+        open={fileBrowserOpen}
+        onClose={() => setFileBrowserOpen(false)}
+        workspace={workspace || undefined}
+        onInsertPath={(path) => {
+          const ta = document.querySelector<HTMLTextAreaElement>("[aria-label='Message input']");
+          if (ta) {
+            const start = ta.selectionStart;
+            const before = ta.value.slice(0, start);
+            const after = ta.value.slice(ta.selectionEnd);
+            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
+            nativeInputValueSetter?.call(ta, before + path + after);
+            ta.dispatchEvent(new Event("input", { bubbles: true }));
+            ta.focus();
+          }
+        }}
       />
     </div>
   );

@@ -4,7 +4,15 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import type { AgentMode, ModelInfo } from "@/lib/types";
 import { useHaptics } from "@/hooks/use-haptics";
 import { apiFetch } from "@/lib/api-fetch";
-import { ChevronDown, Spinner, StopIcon, PlusIcon, ArrowUp, CloseIcon } from "./icons";
+import { ChevronDown, Spinner, StopIcon, PlusIcon, ArrowUp, CloseIcon, SlashIcon } from "./icons";
+
+interface PromptTemplate {
+  id: string;
+  name: string;
+  template: string;
+  category: string;
+  builtIn?: boolean;
+}
 
 const MODES: { id: AgentMode; label: string }[] = [
   { id: "agent", label: "Agent" },
@@ -43,6 +51,9 @@ export function ChatInput({
   const [images, setImages] = useState<AttachedImage[]>([]);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const [templates, setTemplates] = useState<PromptTemplate[]>([]);
+  const [templateFilter, setTemplateFilter] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const haptics = useHaptics();
 
@@ -61,6 +72,46 @@ export function ChatInput({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const shared = sessionStorage.getItem("clr_shared_text");
+    if (shared) {
+      sessionStorage.removeItem("clr_shared_text");
+      setValue(shared);
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "auto";
+        textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 160) + "px";
+        textareaRef.current.focus();
+      }
+    }
+  }, []);
+
+  const loadTemplates = useCallback(() => {
+    apiFetch("/api/templates")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.templates) setTemplates(data.templates);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleTemplateSelect = useCallback((template: PromptTemplate) => {
+    haptics.select();
+    const text = template.template.replace(/\{\{clipboard\}\}/g, "").replace(/\{\{selection\}\}/g, "");
+    setValue(text);
+    setTemplatePickerOpen(false);
+    setTemplateFilter("");
+    apiFetch("/api/templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: template.id }),
+    }).catch(() => {});
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 160) + "px";
+    }
+  }, [haptics]);
 
   const addImages = useCallback((files: File[]) => {
     const valid = files.filter((f) => f.type.startsWith("image/"));
@@ -128,10 +179,21 @@ export function ChatInput({
   };
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setValue(e.target.value);
+    const newValue = e.target.value;
+    setValue(newValue);
     const ta = e.target;
     ta.style.height = "auto";
     ta.style.height = Math.min(ta.scrollHeight, 160) + "px";
+
+    if (newValue === "/") {
+      setTemplatePickerOpen(true);
+      setTemplateFilter("");
+      loadTemplates();
+    } else if (newValue.startsWith("/") && templatePickerOpen) {
+      setTemplateFilter(newValue.slice(1).toLowerCase());
+    } else if (!newValue.startsWith("/")) {
+      setTemplatePickerOpen(false);
+    }
   };
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
@@ -178,16 +240,39 @@ export function ChatInput({
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
         >
+          {templatePickerOpen && templates.length > 0 && (
+            <div className="absolute bottom-full left-0 right-0 mb-1 z-50 bg-bg-elevated border border-border rounded-lg shadow-xl py-1 max-h-60 overflow-y-auto">
+              {templates
+                .filter((t) => !templateFilter || t.name.toLowerCase().includes(templateFilter) || t.category.toLowerCase().includes(templateFilter))
+                .map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => handleTemplateSelect(t)}
+                    className="w-full text-left px-3 py-2 hover:bg-bg-hover transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-[12px] text-text">{t.name}</span>
+                      <span className="text-[10px] text-text-muted px-1.5 py-0.5 rounded bg-bg-surface">{t.category}</span>
+                    </div>
+                    <p className="text-[11px] text-text-muted mt-0.5 truncate">{t.template.slice(0, 80)}</p>
+                  </button>
+                ))}
+              {templates.filter((t) => !templateFilter || t.name.toLowerCase().includes(templateFilter)).length === 0 && (
+                <p className="px-3 py-2 text-[12px] text-text-muted">No matching templates</p>
+              )}
+            </div>
+          )}
+
           <textarea
             ref={textareaRef}
             value={value}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder={isStreaming ? "Type to queue a message..." : "Ask Cursor anything..."}
+            placeholder={isStreaming ? "Type to queue a message..." : "Ask Cursor anything... (type / for templates)"}
             aria-label="Message input"
             rows={1}
-            className="w-full resize-none bg-transparent px-3.5 pt-2.5 pb-1 pr-10 text-[13px] text-text placeholder:text-text-muted focus:outline-none"
+            className="w-full resize-none bg-transparent px-3.5 pt-2.5 pb-1 pr-10 text-[length:var(--clr-text-input)] text-text placeholder:text-text-muted focus:outline-none"
           />
 
           {images.length > 0 && (
@@ -219,7 +304,7 @@ export function ChatInput({
                     haptics.select();
                     onModeChange(mode.id);
                   }}
-                  className={`px-3 py-1.5 rounded text-[12px] font-medium transition-colors ${
+                  className={`px-3 py-1.5 rounded text-[length:var(--clr-text-sm)] font-medium transition-colors min-h-[var(--clr-touch-min)] ${
                     selectedMode === mode.id
                       ? "bg-bg-active text-text"
                       : "text-text-muted hover:text-text-secondary hover:bg-bg-hover"
@@ -229,7 +314,7 @@ export function ChatInput({
                 </button>
               ))}
 
-              <span className="hidden sm:inline text-[10px] text-text-muted/50 ml-2 select-none">
+              <span className="hidden sm:inline text-[length:var(--clr-text-2xs)] text-text-muted/50 ml-2 select-none">
                 Enter ↵ send · Shift+Enter newline
               </span>
             </div>
@@ -244,7 +329,7 @@ export function ChatInput({
                   aria-haspopup="listbox"
                   aria-expanded={modelOpen}
                   aria-label="Select model"
-                  className="flex items-center gap-1 px-3 py-1.5 rounded text-[12px] text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors"
+                  className="flex items-center gap-1 px-3 py-1.5 rounded text-[length:var(--clr-text-sm)] text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors min-h-[var(--clr-touch-min)]"
                 >
                   {modelsLoading ? (
                     <Spinner className="w-2.5 h-2.5" />
@@ -294,7 +379,7 @@ export function ChatInput({
               {isStreaming && (
                 <button
                   onClick={handleStop}
-                  className="p-2 rounded-md text-text-muted hover:text-text transition-colors"
+                  className="p-2 rounded-md text-text-muted hover:text-text transition-colors min-w-[var(--clr-touch-min)] min-h-[var(--clr-touch-min)] flex items-center justify-center"
                   aria-label="Stop streaming"
                 >
                   <StopIcon />
@@ -303,7 +388,7 @@ export function ChatInput({
               <button
                 onClick={handleSend}
                 disabled={(!value.trim() && images.length === 0) || uploading}
-                className="p-2 rounded-md text-text-muted hover:text-text disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                className="p-2 rounded-md text-text-muted hover:text-text disabled:opacity-20 disabled:cursor-not-allowed transition-colors min-w-[var(--clr-touch-min)] min-h-[var(--clr-touch-min)] flex items-center justify-center"
                 aria-label={uploading ? "Uploading..." : isStreaming ? "Queue message" : "Send message"}
               >
                 {uploading ? <Spinner className="w-4 h-4" /> : isStreaming ? <PlusIcon size={18} /> : <ArrowUp />}
@@ -334,7 +419,7 @@ function ModelRow({
         haptics.select();
         onSelect();
       }}
-      className={`w-full text-left px-3 py-1.5 text-[12px] flex items-center justify-between gap-2 transition-colors ${
+      className={`w-full text-left px-3 py-1.5 text-[length:var(--clr-text-sm)] flex items-center justify-between gap-2 transition-colors min-h-[var(--clr-touch-min)] ${
         selected
           ? "text-text bg-bg-active"
           : "text-text-secondary hover:bg-bg-hover hover:text-text"

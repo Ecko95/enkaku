@@ -34,6 +34,8 @@ export interface StoredSession {
   preview: string;
   createdAt: number;
   updatedAt: number;
+  pinned?: boolean;
+  starred?: boolean;
 }
 
 export type AgentMode = "agent" | "ask" | "plan";

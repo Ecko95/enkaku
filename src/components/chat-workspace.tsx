@@ -8,6 +8,7 @@ import { ChatContainer } from "./chat-container";
 import { SessionSidebar } from "./session-sidebar";
 import { SettingsPanel } from "./settings-panel";
 import { QrModal } from "./qr-modal";
+import { DashboardPanel } from "./dashboard-panel";
 import { ErrorBoundary } from "./error-boundary";
 import { uuid } from "@/lib/uuid";
 
@@ -51,6 +52,7 @@ export function ChatWorkspace() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
+  const [dashboardOpen, setDashboardOpen] = useState(false);
   const [defaultModel, setDefaultModel] = useState<string>("auto");
   const haptics = useHaptics();
   const restoredRef = useRef(false);
@@ -230,6 +232,7 @@ export function ChatWorkspace() {
               onOpenSidebar={() => setSidebarOpen(true)}
               onOpenSettings={() => setSettingsOpen(true)}
               onOpenQr={() => setQrOpen(true)}
+              onOpenDashboard={() => setDashboardOpen(true)}
             />
           </ErrorBoundary>
         </div>
@@ -249,6 +252,8 @@ export function ChatWorkspace() {
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} onDefaultModelChange={setDefaultModel} />
 
       <QrModal open={qrOpen} onClose={() => setQrOpen(false)} />
+
+      <DashboardPanel open={dashboardOpen} onClose={() => setDashboardOpen(false)} />
     </div>
   );
 }

@@ -1,10 +1,11 @@
 import { getAllConfig, setConfig } from "@/lib/session-store";
 import { serverError } from "@/lib/errors";
+import { broadcast } from "@/lib/broadcast";
 
 export const dynamic = "force-dynamic";
 
 const BOOL_KEYS = new Set(["trust", "sound", "pwa_prompt"]);
-const STRING_KEYS = new Set(["default_model", "starred_projects", "webhook_url"]);
+const STRING_KEYS = new Set(["default_model", "starred_projects", "webhook_url", "terminal_policy"]);
 
 export async function GET() {
   try {
@@ -16,6 +17,7 @@ export async function GET() {
       default_model: "auto",
       starred_projects: "[]",
       webhook_url: "",
+      terminal_policy: "unrestricted",
     };
     for (const [key, value] of Object.entries(raw)) {
       if (BOOL_KEYS.has(key)) {
@@ -45,6 +47,7 @@ export async function PATCH(request: Request) {
       }
     }
 
+    broadcast("settings_change", updates);
     return Response.json({ settings: updates });
   } catch {
     return serverError("Failed to update settings");

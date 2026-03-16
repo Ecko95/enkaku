@@ -4,6 +4,7 @@ import { readFile } from "fs/promises";
 import { join } from "path";
 import { getWorkspace } from "@/lib/workspace";
 import { badRequest, serverError, parseJsonBody } from "@/lib/errors";
+import { logAudit } from "@/lib/audit-log";
 
 export const dynamic = "force-dynamic";
 
@@ -215,6 +216,8 @@ export async function POST(req: Request) {
   const action = body.action;
 
   try {
+    void logAudit("git_action", `action=${action} cwd=${cwd}`);
+
     switch (action) {
       case "commit": {
         if (!body.message?.trim()) return badRequest("Commit message is required");

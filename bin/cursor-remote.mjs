@@ -4,8 +4,8 @@ import { spawn, execFile, execFileSync } from "child_process";
 import { resolve, dirname, join, sep } from "path";
 import { fileURLToPath } from "url";
 import { networkInterfaces, homedir } from "os";
-import { existsSync, readFileSync, readdirSync, statSync } from "fs";
-import { randomInt } from "crypto";
+import { existsSync, readFileSync, readdirSync, statSync, mkdirSync, writeFileSync } from "fs";
+import { randomInt, generateKeyPairSync, createSign, randomUUID } from "crypto";
 import { createServer } from "net";
 import http from "http";
 import qrcode from "qrcode-terminal";
@@ -143,7 +143,76 @@ async function checkStaleRules(portNum) {
   } catch { return false; }
 }
 
+// --- Tailscale Detection ---
+
+async function getTailscaleIp() {
+  try {
+    if (isWSL()) {
+      const ip = await execCommand("tailscale.exe", ["ip", "-4"]);
+      if (ip && isValidIPv4(ip.trim())) return ip.trim();
+      const psIp = await execCommand("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "tailscale ip -4"]);
+      if (psIp && isValidIPv4(psIp.trim())) return psIp.trim();
+    } else {
+      const ip = await execCommand("tailscale", ["ip", "-4"]);
+      if (ip && isValidIPv4(ip.trim())) return ip.trim();
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // --- End WSL ---
+
+// --- Self-Signed TLS Certificate ---
+
+const CERTS_DIR = join(homedir(), ".config", "enkaku", "certs");
+
+function ensureSelfSignedCert() {
+  const keyPath = join(CERTS_DIR, "server.key");
+  const certPath = join(CERTS_DIR, "server.crt");
+
+  if (existsSync(keyPath) && existsSync(certPath)) {
+    return { keyPath, certPath };
+  }
+
+  mkdirSync(CERTS_DIR, { recursive: true });
+
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: "spki", format: "pem" },
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+  });
+
+  const serialNumber = randomUUID().replace(/-/g, "").slice(0, 16);
+  const notBefore = new Date();
+  const notAfter = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+
+  const formatDate = (d) => d.toISOString().replace(/[-:T]/g, "").slice(0, 14) + "Z";
+
+  try {
+    execFileSync("openssl", [
+      "req", "-new", "-x509",
+      "-key", "/dev/stdin",
+      "-out", certPath,
+      "-days", "365",
+      "-subj", "/CN=Enkaku Local/O=CLR",
+      "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1",
+    ], {
+      input: privateKey,
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 10000,
+    });
+    writeFileSync(keyPath, privateKey, { mode: 0o600 });
+  } catch {
+    writeFileSync(keyPath, privateKey, { mode: 0o600 });
+    writeFileSync(certPath, publicKey);
+    console.log("  \x1b[33m⚠ openssl not found — wrote key pair but cert may not work with browsers.\x1b[0m");
+    console.log("  \x1b[2m  Install openssl for proper self-signed certificates.\x1b[0m");
+  }
+
+  return { keyPath, certPath };
+}
 
 const WORDS = [
   "alpha","amber","anvil","apple","arrow","atlas","azure","badge","baker","beach",
@@ -307,6 +376,7 @@ if (args.includes("--help") || args.includes("-h")) {
     --no-qr        Don't show QR code in terminal
     --no-trust     Disable workspace trust (agent will ask before actions)
     --no-forward   Don't set up WSL2 port forwarding
+    --https        Enable HTTPS with self-signed certificate
     -v, --verbose  Show all server and agent output
 
   Commands:
@@ -338,6 +408,7 @@ let verbose = false;
 let trust = process.env.CURSOR_TRUST !== "0";
 let customToken = null;
 let hostname = "0.0.0.0";
+let useHttps = false;
 
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -359,6 +430,10 @@ for (let i = 0; i < args.length; i++) {
     trust = true;
   } else if (a === "--no-trust") {
     trust = false;
+  } else if (a === "--https") {
+    useHttps = true;
+  } else if (a === "--no-https") {
+    useHttps = false;
   } else if (!a.startsWith("-")) {
     positional.push(a);
   }
@@ -426,12 +501,19 @@ const port = String(availablePort);
 
 const lanIp = await getLanIp();
 const isLocalOnly = hostname === "127.0.0.1" || hostname === "localhost";
-const localUrl = `http://localhost:${port}`;
-const networkUrl = !isLocalOnly && lanIp ? `http://${lanIp}:${port}` : null;
+const protocol = useHttps ? "https" : "http";
+const localUrl = `${protocol}://localhost:${port}`;
+const networkUrl = !isLocalOnly && lanIp ? `${protocol}://${lanIp}:${port}` : null;
 
 const authToken = customToken || process.env.AUTH_TOKEN || generateToken();
 
 const authUrl = `${localUrl}?token=${authToken}`;
+
+let tlsCert = null;
+if (useHttps) {
+  tlsCert = ensureSelfSignedCert();
+  console.log(`  \x1b[32m✓ HTTPS enabled\x1b[0m — self-signed cert at ${CERTS_DIR}`);
+}
 
 // WSL2 port forwarding setup
 let wslForwarded = false;
@@ -472,6 +554,35 @@ if (isWSL() && !noForward) {
   }
 }
 
+// Tailscale port forwarding (WSL2 only)
+let tailscaleIp = null;
+let tailscaleForwarded = false;
+
+if (isWSL() && !noForward) {
+  tailscaleIp = await getTailscaleIp();
+  if (tailscaleIp) {
+    const wslIp = getWSLInternalIp();
+    if (wslIp) {
+      const hasStale = await checkStaleRules(parseInt(port));
+      if (hasStale) {
+        await removePortForward(parseInt(port), tailscaleIp);
+      }
+      const fwdResult = await setupPortForward(parseInt(port), wslIp, tailscaleIp);
+      if (fwdResult.success) {
+        tailscaleForwarded = true;
+        console.log(`  \x1b[32m✓ Tailscale forwarded:\x1b[0m ${tailscaleIp}:${port} → ${wslIp}:${port}`);
+      } else if (fwdResult.error?.includes("Access is denied") || fwdResult.error?.includes("requires elevation")) {
+        console.log(`  \x1b[33m⚠ Tailscale port forward needs elevation:\x1b[0m`);
+        console.log(`  \x1b[97m  netsh interface portproxy add v4tov4 listenport=${port} listenaddress=${tailscaleIp} connectport=${port} connectaddress=${wslIp}\x1b[0m`);
+      }
+    }
+  }
+} else if (!isWSL()) {
+  tailscaleIp = await getTailscaleIp();
+}
+
+const tailscaleUrl = tailscaleIp ? `http://${tailscaleIp}:${port}` : null;
+
 console.log("");
 console.log("\x1b[97m ██████╗██╗     ██████╗ ");
 console.log("██╔════╝██║     ██╔══██╗");
@@ -487,6 +598,9 @@ console.log(`  \x1b[2mLocal:\x1b[0m       ${localUrl}`);
 if (networkUrl) {
   console.log(`  \x1b[2mNetwork:\x1b[0m     \x1b[97m${networkUrl}\x1b[0m`);
 }
+if (tailscaleUrl) {
+  console.log(`  \x1b[2mTailscale:\x1b[0m   \x1b[36m${tailscaleUrl}\x1b[0m`);
+}
 console.log(`  \x1b[2mAuth token:\x1b[0m  \x1b[97m${authToken}\x1b[0m`);
 console.log(`  \x1b[2mAuth link:\x1b[0m   \x1b[4m\x1b[97m${authUrl}\x1b[0m`);
 if (verbose) {
@@ -494,7 +608,11 @@ if (verbose) {
 }
 console.log("");
 
-const qrUrl = networkUrl ? `${networkUrl}?token=${authToken}` : null;
+const qrUrl = tailscaleUrl
+  ? `${tailscaleUrl}?token=${authToken}`
+  : networkUrl
+    ? `${networkUrl}?token=${authToken}`
+    : null;
 
 if (!noQr && qrUrl) {
   console.log("  \x1b[2mScan to connect from your phone:\x1b[0m");
@@ -529,18 +647,27 @@ const nextArgs = isBuilt
   ? ["start", "--hostname", hostname, "--port", port]
   : ["dev", "--hostname", hostname, "--port", port];
 
+const childEnv = {
+  ...process.env,
+  CURSOR_WORKSPACE: workspace,
+  CURSOR_TRUST: trust ? "1" : "",
+  PORT: port,
+  AUTH_TOKEN: authToken,
+  CLR_VERBOSE: verbose ? "1" : "",
+};
+
+if (useHttps && tlsCert) {
+  childEnv.CLR_HTTPS = "1";
+  childEnv.CLR_TLS_KEY = tlsCert.keyPath;
+  childEnv.CLR_TLS_CERT = tlsCert.certPath;
+  childEnv.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+}
+
 const child = spawn(nextBin, nextArgs, {
   cwd: projectRoot,
   shell: true,
   stdio: ["inherit", "pipe", "pipe"],
-  env: {
-    ...process.env,
-    CURSOR_WORKSPACE: workspace,
-    CURSOR_TRUST: trust ? "1" : "",
-    PORT: port,
-    AUTH_TOKEN: authToken,
-    CLR_VERBOSE: verbose ? "1" : "",
-  },
+  env: childEnv,
 });
 
 let ready = false;
@@ -581,6 +708,9 @@ async function shutdown(signal) {
   if (wslForwarded && wslForwardLanIp) {
     await removePortForward(parseInt(port), wslForwardLanIp);
     await removeFirewallRule(parseInt(port));
+  }
+  if (tailscaleForwarded && tailscaleIp) {
+    await removePortForward(parseInt(port), tailscaleIp);
   }
 
   child.kill(signal);

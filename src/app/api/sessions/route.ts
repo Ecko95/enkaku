@@ -1,8 +1,9 @@
-import { listSessions, deleteSession, archiveSession, unarchiveSession, archiveAllSessions, getArchivedSessionIds } from "@/lib/session-store";
+import { listSessions, deleteSession, archiveSession, unarchiveSession, archiveAllSessions, getArchivedSessionIds, pinSession, starSession } from "@/lib/session-store";
 import { readCursorSessions } from "@/lib/transcript-reader";
 import { getWorkspace } from "@/lib/workspace";
 import { deleteSessionSchema, parseBody } from "@/lib/validation";
 import { badRequest, parseJsonBody, serverError } from "@/lib/errors";
+import { broadcast } from "@/lib/broadcast";
 import type { StoredSession } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -65,6 +66,7 @@ export async function DELETE(req: Request) {
   if ("error" in parsed) return badRequest(parsed.error);
 
   await deleteSession(parsed.data.sessionId);
+  broadcast("session_deleted", { sessionId: parsed.data.sessionId });
   return Response.json({ ok: true });
 }
 
@@ -93,10 +95,31 @@ export async function PATCH(req: Request) {
         await archiveAllSessions(workspace, cursorSessions);
         break;
       }
+      case "pin": {
+        if (!sessionId) return badRequest("sessionId required");
+        await pinSession(sessionId, true);
+        break;
+      }
+      case "unpin": {
+        if (!sessionId) return badRequest("sessionId required");
+        await pinSession(sessionId, false);
+        break;
+      }
+      case "star": {
+        if (!sessionId) return badRequest("sessionId required");
+        await starSession(sessionId, true);
+        break;
+      }
+      case "unstar": {
+        if (!sessionId) return badRequest("sessionId required");
+        await starSession(sessionId, false);
+        break;
+      }
       default:
         return badRequest("Invalid action");
     }
 
+    broadcast("session_update", { action, sessionId });
     return Response.json({ ok: true });
   } catch {
     return serverError("Failed to update session");

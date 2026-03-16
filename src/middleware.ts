@@ -4,6 +4,74 @@ import { NextResponse } from "next/server";
 const COOKIE_NAME = "cr_session";
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_FAILURES = 5;
+const RATE_LIMIT_LOCKOUT_MS = 5 * 60_000;
+
+interface RateLimitEntry {
+  failures: number;
+  firstFailure: number;
+  lockedUntil: number;
+}
+
+const rateLimitMap = new Map<string, RateLimitEntry>();
+
+function pruneRateLimits() {
+  const now = Date.now();
+  for (const [ip, entry] of rateLimitMap) {
+    if (now > entry.lockedUntil && now - entry.firstFailure > RATE_LIMIT_WINDOW_MS) {
+      rateLimitMap.delete(ip);
+    }
+  }
+}
+
+setInterval(pruneRateLimits, 60_000);
+
+function getClientIp(req: NextRequest): string {
+  return (
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    req.headers.get("x-real-ip") ||
+    "unknown"
+  );
+}
+
+function isRateLimited(ip: string): { limited: boolean; retryAfter?: number } {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+  if (!entry) return { limited: false };
+
+  if (entry.lockedUntil > now) {
+    return { limited: true, retryAfter: Math.ceil((entry.lockedUntil - now) / 1000) };
+  }
+
+  if (now - entry.firstFailure > RATE_LIMIT_WINDOW_MS) {
+    rateLimitMap.delete(ip);
+    return { limited: false };
+  }
+
+  return { limited: false };
+}
+
+function recordFailure(ip: string): void {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+
+  if (!entry || now - entry.firstFailure > RATE_LIMIT_WINDOW_MS) {
+    rateLimitMap.set(ip, { failures: 1, firstFailure: now, lockedUntil: 0 });
+    return;
+  }
+
+  entry.failures++;
+  if (entry.failures >= RATE_LIMIT_MAX_FAILURES) {
+    entry.lockedUntil = now + RATE_LIMIT_LOCKOUT_MS;
+    console.error(`[security] IP ${ip} locked out for ${RATE_LIMIT_LOCKOUT_MS / 1000}s after ${entry.failures} failed auth attempts`);
+  }
+}
+
+function clearFailures(ip: string): void {
+  rateLimitMap.delete(ip);
+}
+
 function unauthorizedHtml(wrongToken = false): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -129,17 +197,89 @@ function unauthorizedHtml(wrongToken = false): string {
 </html>`;
 }
 
+function rateLimitedHtml(retryAfter: number): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cursor Local Remote</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      color: #e8e8e8;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card { max-width: 380px; width: 100%; text-align: center; }
+    .shield { width: 40px; height: 40px; margin: 0 auto 20px; color: #ef4444; }
+    h1 { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+    .sub { font-size: 13px; color: #999; line-height: 1.5; margin-bottom: 16px; }
+    .countdown { font-size: 24px; font-weight: 700; color: #ef4444; font-variant-numeric: tabular-nums; }
+    .hint { font-size: 11px; color: #555; line-height: 1.5; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <svg class="shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      <line x1="9" y1="9" x2="15" y2="15"/>
+      <line x1="15" y1="9" x2="9" y2="15"/>
+    </svg>
+    <h1>Too many failed attempts</h1>
+    <p class="sub">This IP has been temporarily locked out.</p>
+    <p class="countdown" id="timer">${retryAfter}s</p>
+    <p class="hint">Try again after the cooldown, or check your terminal for the correct token.</p>
+  </div>
+  <script>
+    var s = ${retryAfter};
+    var el = document.getElementById("timer");
+    var t = setInterval(function() {
+      s--;
+      if (s <= 0) { clearInterval(t); location.reload(); return; }
+      el.textContent = s + "s";
+    }, 1000);
+  </script>
+</body>
+</html>`;
+}
+
 export function middleware(req: NextRequest) {
   const token = process.env.AUTH_TOKEN?.toLowerCase();
   if (!token) {
-    return NextResponse.next();
+    return addSecurityHeaders(NextResponse.next());
   }
 
+  const ip = getClientIp(req);
   const url = req.nextUrl.clone();
   const queryToken = url.searchParams.get("token");
 
+  const rateCheck = isRateLimited(ip);
+  if (rateCheck.limited) {
+    if (req.nextUrl.pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { error: "Too many failed attempts" },
+        { status: 429, headers: { "Retry-After": String(rateCheck.retryAfter ?? 300) } },
+      );
+    }
+    return new NextResponse(rateLimitedHtml(rateCheck.retryAfter ?? 300), {
+      status: 429,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Retry-After": String(rateCheck.retryAfter ?? 300),
+      },
+    });
+  }
+
   if (queryToken !== null) {
     if (queryToken.toLowerCase() === token) {
+      clearFailures(ip);
       url.searchParams.delete("token");
       const res = NextResponse.redirect(url);
       res.cookies.set(COOKIE_NAME, token, {
@@ -151,6 +291,7 @@ export function middleware(req: NextRequest) {
       return res;
     }
 
+    recordFailure(ip);
     return new NextResponse(unauthorizedHtml(true), {
       status: 401,
       headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -158,10 +299,10 @@ export function middleware(req: NextRequest) {
   }
 
   const cookie = req.cookies.get(COOKIE_NAME)?.value;
-  if (cookie?.toLowerCase() === token) return NextResponse.next();
+  if (cookie?.toLowerCase() === token) return addSecurityHeaders(NextResponse.next());
 
   const auth = req.headers.get("authorization");
-  if (auth?.toLowerCase() === `bearer ${token}`) return NextResponse.next();
+  if (auth?.toLowerCase() === `bearer ${token}`) return addSecurityHeaders(NextResponse.next());
 
   if (req.nextUrl.pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -171,6 +312,14 @@ export function middleware(req: NextRequest) {
     status: 401,
     headers: { "Content-Type": "text/html; charset=utf-8" },
   });
+}
+
+function addSecurityHeaders(res: NextResponse): NextResponse {
+  res.headers.set("X-Content-Type-Options", "nosniff");
+  res.headers.set("X-Frame-Options", "DENY");
+  res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  return res;
 }
 
 export const config = {
