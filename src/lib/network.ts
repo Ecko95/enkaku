@@ -1,8 +1,10 @@
 import { networkInterfaces } from "os";
-import { isWSL, getWindowsLanIp } from "./wsl";
 
 export async function getLanIp(): Promise<string | null> {
   // In WSL2, resolve the Windows host's LAN IP instead of the WSL internal IP
+  // Dynamic import to avoid bundling child_process/fs into client builds
+  const { isWSL, getWindowsLanIp } = await import("./wsl");
+
   if (isWSL()) {
     const windowsIp = await getWindowsLanIp();
     if (windowsIp) return windowsIp;

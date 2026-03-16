@@ -25,14 +25,14 @@
 
 ## Tasks
 
-- [ ] **T01: Add port forwarding and firewall functions to WSL module** `est:30m`
+- [x] **T01: Add port forwarding and firewall functions to WSL module** `est:30m`
   - Why: Core port forwarding logic — must exist before the CLI can call it
   - Files: `src/lib/wsl.ts`
   - Do: Add `setupPortForward(port, wslIp, lanIp)` — runs `netsh.exe interface portproxy add v4tov4 listenport=<port> listenaddress=<lanIp> connectport=<port> connectaddress=<wslIp>`. Add `removePortForward(port, lanIp)` — runs `netsh.exe interface portproxy delete v4tov4 listenport=<port> listenaddress=<lanIp>`. Add `addFirewallRule(port)` — `netsh.exe advfirewall firewall add rule name="CLR-<port>" dir=in action=allow protocol=TCP localport=<port>`. Add `removeFirewallRule(port)` — delete by name. All functions async, return success boolean, capture stderr for error reporting. Never throw.
   - Verify: Functions exist in module, `npm run build` passes
   - Done when: All four functions exported with real netsh.exe calls, error handling included
 
-- [ ] **T02: Wire port forwarding into CLI startup and shutdown** `est:30m`
+- [x] **T02: Wire port forwarding into CLI startup and shutdown** `est:30m`
   - Why: The user-visible outcome — port forwarding happens automatically when `clr` starts
   - Files: `bin/cursor-remote.mjs`
   - Do: After port is resolved and before Next.js starts: if WSL, call setup functions (inline JS mirroring wsl.ts pattern). On shutdown, call remove functions before killing the child process. Add a `--no-forward` flag to skip port forwarding. Print status messages: "⚡ WSL2 detected — forwarding port...", "✓ Port forwarded", "✗ Port forwarding failed (need admin?)". Handle the case where forwarding fails but server still starts — show the WSL IP as fallback with instructions.

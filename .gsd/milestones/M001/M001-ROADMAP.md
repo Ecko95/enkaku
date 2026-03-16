@@ -51,7 +51,7 @@ This milestone is complete only when all are true:
 - [x] **S01: WSL detection and LAN IP resolution** `risk:medium` `depends:[]`
   > After this: `clr` inside WSL2 shows the Windows LAN IP in terminal output and QR code; native platforms unchanged
 
-- [ ] **S02: Automatic port forwarding and cleanup** `risk:high` `depends:[S01]`
+- [x] **S02: Automatic port forwarding and cleanup** `risk:high` `depends:[S01]`
   > After this: phone on same Wi-Fi can reach the server running inside WSL2 via the QR code URL
 
 - [ ] **S03: Resilience and fallback UX** `risk:low` `depends:[S02]`

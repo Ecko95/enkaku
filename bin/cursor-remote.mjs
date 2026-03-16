@@ -87,6 +87,50 @@ function getWSLInternalIp() {
 
 // --- End WSL ---
 
+// --- WSL Port Forwarding (inline, mirrors src/lib/wsl.ts) ---
+
+function execNetsh(args) {
+  return new Promise((resolve) => {
+    execFile("netsh.exe", args, { timeout: 10000 }, (error, stdout, stderr) => {
+      if (error) {
+        const errMsg = stderr?.toString().trim() || stdout?.toString().trim() || error.message;
+        resolve({ success: false, error: errMsg });
+        return;
+      }
+      resolve({ success: true });
+    });
+  });
+}
+
+async function setupPortForward(portNum, wslIp, lanIp) {
+  try {
+    return await execNetsh(["interface", "portproxy", "add", "v4tov4",
+      `listenport=${portNum}`, `listenaddress=${lanIp}`, `connectport=${portNum}`, `connectaddress=${wslIp}`]);
+  } catch { return { success: false, error: "Unexpected error" }; }
+}
+
+async function removePortForward(portNum, lanIp) {
+  try {
+    return await execNetsh(["interface", "portproxy", "delete", "v4tov4",
+      `listenport=${portNum}`, `listenaddress=${lanIp}`]);
+  } catch { return { success: false, error: "Unexpected error" }; }
+}
+
+async function addFirewallRule(portNum) {
+  try {
+    return await execNetsh(["advfirewall", "firewall", "add", "rule",
+      `name=CLR-${portNum}`, "dir=in", "action=allow", "protocol=TCP", `localport=${portNum}`]);
+  } catch { return { success: false, error: "Unexpected error" }; }
+}
+
+async function removeFirewallRule(portNum) {
+  try {
+    return await execNetsh(["advfirewall", "firewall", "delete", "rule", `name=CLR-${portNum}`]);
+  } catch { return { success: false, error: "Unexpected error" }; }
+}
+
+// --- End WSL Port Forwarding ---
+
 const WORDS = [
   "alpha","amber","anvil","apple","arrow","atlas","azure","badge","baker","beach",
   "berry","blade","blaze","bloom","board","bonus","brave","brick","brook","brush",
@@ -136,6 +180,7 @@ if (args.includes("--help") || args.includes("-h")) {
     --no-open    Don't auto-open the browser
     --no-qr      Don't show QR code in terminal
     --no-trust   Disable workspace trust (agent will ask before actions)
+    --no-forward Don't set up WSL2 port forwarding
     -v, --verbose  Show all server and agent output
     -h, --help   Show this help
 
@@ -153,6 +198,7 @@ const positional = [];
 let rawPort = process.env.PORT || "3100";
 let noOpen = false;
 let noQr = false;
+let noForward = false;
 let verbose = false;
 let trust = process.env.CURSOR_TRUST !== "0";
 
@@ -164,6 +210,8 @@ for (let i = 0; i < args.length; i++) {
     noOpen = true;
   } else if (a === "--no-qr") {
     noQr = true;
+  } else if (a === "--no-forward") {
+    noForward = true;
   } else if (a === "--verbose" || a === "-v") {
     verbose = true;
   } else if (a === "--trust") {
@@ -239,6 +287,39 @@ const port = String(availablePort);
 const lanIp = await getLanIp();
 const localUrl = `http://localhost:${port}`;
 const networkUrl = lanIp ? `http://${lanIp}:${port}` : null;
+
+// WSL2 port forwarding setup
+let wslForwarded = false;
+let wslForwardLanIp = null;
+
+if (isWSL() && !noForward) {
+  const wslIp = getWSLInternalIp();
+  if (wslIp && lanIp) {
+    wslForwardLanIp = lanIp;
+    console.log(`  \x1b[2m⚡ Setting up port forwarding...\x1b[0m`);
+    const fwdResult = await setupPortForward(parseInt(port), wslIp, lanIp);
+    if (fwdResult.success) {
+      const fwResult = await addFirewallRule(parseInt(port));
+      if (fwResult.success) {
+        wslForwarded = true;
+        console.log(`  \x1b[32m✓ Port forwarded:\x1b[0m ${lanIp}:${port} → ${wslIp}:${port}`);
+      } else {
+        // Port forward succeeded but firewall failed — still usable if firewall is off
+        wslForwarded = true;
+        console.log(`  \x1b[33m⚠ Port forwarded but firewall rule failed:\x1b[0m ${fwResult.error}`);
+        console.log(`  \x1b[2m  Connection may be blocked by Windows Firewall.\x1b[0m`);
+      }
+    } else {
+      console.log(`  \x1b[33m⚠ Port forwarding failed:\x1b[0m ${fwdResult.error}`);
+      if (fwdResult.error?.includes("Access is denied") || fwdResult.error?.includes("requires elevation")) {
+        console.log(`  \x1b[2m  Run these commands in an elevated PowerShell:\x1b[0m`);
+        console.log(`  \x1b[97m  netsh interface portproxy add v4tov4 listenport=${port} listenaddress=${lanIp} connectport=${port} connectaddress=${wslIp}\x1b[0m`);
+        console.log(`  \x1b[97m  netsh advfirewall firewall add rule name=CLR-${port} dir=in action=allow protocol=TCP localport=${port}\x1b[0m`);
+      }
+      console.log(`  \x1b[2m  Server will still start — accessible at WSL IP only.\x1b[0m`);
+    }
+  }
+}
 
 const authToken = process.env.AUTH_TOKEN || generateToken();
 
@@ -343,11 +424,18 @@ child.on("close", (code) => {
 
 let exiting = false;
 
-function shutdown(signal) {
+async function shutdown(signal) {
   if (exiting) {
     process.exit(1);
   }
   exiting = true;
+
+  // Clean up WSL port forwarding
+  if (wslForwarded && wslForwardLanIp) {
+    await removePortForward(parseInt(port), wslForwardLanIp);
+    await removeFirewallRule(parseInt(port));
+  }
+
   child.kill(signal);
   setTimeout(() => process.exit(0), 3000);
 }

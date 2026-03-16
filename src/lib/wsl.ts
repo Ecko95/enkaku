@@ -131,6 +131,11 @@ export function getWSLInternalIp(): string | null {
 
 // --- Helpers ---
 
+export interface NetshResult {
+  success: boolean;
+  error?: string;
+}
+
 function isValidIPv4(ip: string): boolean {
   const parts = ip.split(".");
   if (parts.length !== 4) return false;
@@ -160,4 +165,111 @@ function execCommand(cmd: string, args: string[]): Promise<string | null> {
       resolve(result || null);
     });
   });
+}
+
+function execNetsh(args: string[]): Promise<NetshResult> {
+  return new Promise((resolve) => {
+    execFile("netsh.exe", args, { timeout: 10000 }, (error, stdout, stderr) => {
+      if (error) {
+        const errMsg =
+          stderr?.toString().trim() ||
+          stdout?.toString().trim() ||
+          error.message;
+        resolve({ success: false, error: errMsg });
+        return;
+      }
+      resolve({ success: true });
+    });
+  });
+}
+
+// --- Port Forwarding ---
+
+/**
+ * Set up netsh portproxy to forward traffic from Windows LAN IP:port to WSL internal IP:port.
+ */
+export async function setupPortForward(
+  port: number,
+  wslIp: string,
+  lanIp: string,
+): Promise<NetshResult> {
+  try {
+    return await execNetsh([
+      "interface",
+      "portproxy",
+      "add",
+      "v4tov4",
+      `listenport=${port}`,
+      `listenaddress=${lanIp}`,
+      `connectport=${port}`,
+      `connectaddress=${wslIp}`,
+    ]);
+  } catch {
+    return { success: false, error: "Unexpected error setting up port forward" };
+  }
+}
+
+/**
+ * Remove a previously created portproxy rule.
+ */
+export async function removePortForward(
+  port: number,
+  lanIp: string,
+): Promise<NetshResult> {
+  try {
+    return await execNetsh([
+      "interface",
+      "portproxy",
+      "delete",
+      "v4tov4",
+      `listenport=${port}`,
+      `listenaddress=${lanIp}`,
+    ]);
+  } catch {
+    return {
+      success: false,
+      error: "Unexpected error removing port forward",
+    };
+  }
+}
+
+/**
+ * Add a Windows Firewall inbound rule to allow connections on the given port.
+ */
+export async function addFirewallRule(port: number): Promise<NetshResult> {
+  try {
+    return await execNetsh([
+      "advfirewall",
+      "firewall",
+      "add",
+      "rule",
+      `name=CLR-${port}`,
+      "dir=in",
+      "action=allow",
+      "protocol=TCP",
+      `localport=${port}`,
+    ]);
+  } catch {
+    return { success: false, error: "Unexpected error adding firewall rule" };
+  }
+}
+
+/**
+ * Remove the Windows Firewall inbound rule for the given port.
+ */
+export async function removeFirewallRule(port: number): Promise<NetshResult> {
+  try {
+    return await execNetsh([
+      "advfirewall",
+      "firewall",
+      "delete",
+      "rule",
+      `name=CLR-${port}`,
+    ]);
+  } catch {
+    return {
+      success: false,
+      error: "Unexpected error removing firewall rule",
+    };
+  }
 }

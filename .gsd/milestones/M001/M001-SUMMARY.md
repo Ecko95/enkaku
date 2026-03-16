@@ -7,6 +7,10 @@ WSL2 auto-detected via /proc/version, Windows LAN IP resolved via powershell.exe
 
 Key files: `src/lib/wsl.ts`, `bin/cursor-remote.mjs`, `src/lib/network.ts`, `src/app/api/info/route.ts`
 
+### S02: Automatic Port Forwarding and Cleanup
+netsh portproxy + firewall rule lifecycle integrated into CLI. Setup on start, cleanup on exit. `--no-forward` flag added. Privilege error fallback shows manual netsh commands. Dynamic import fix for wsl.ts in network.ts.
+
+Key files: `src/lib/wsl.ts`, `bin/cursor-remote.mjs`, `src/lib/network.ts`
+
 ## Remaining
-- S02: Automatic port forwarding and cleanup
 - S03: Resilience and fallback UX
